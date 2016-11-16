@@ -1,27 +1,6 @@
-%net_path = '../models/places-caffe-ref-upgraded-tidy.mat';
-%net = load(net_path);
-
-%im = imread('../data/amusement_park/gsun_fff7c12aaf006e684f249cb2633b89da.jpg');
-% im_ = single(im);
-% im_ = imresize(im_, net.meta.normalization.imageSize(1:2));
-% im_ = im_ - net.meta.normalization.averageImage;
-
-% target_y = zeros([1 1 205]);
-% target_y(5) = single(1);
-
-% 
-% im = imdb.images.data(:,:,:,1);
-% target_y = zeros([1 1 205]);
-
-
-layernum = 13; % 13 = conv5
-gradient_idx = [1,1];
-bounding_box = test_patch(net, im_, target_y, layernum, gradient_idx);
-
-function bounding_box = test_patch(net, x, y, layernum, gradient_idx, show_graph)
-    res = vl_simplenn(net, x);
-    [~, dzdy] = mse_loss(res(end).x, y);
-    res = vl_simplenn(net, x, dzdy);
+function bounding_box = test_gradient_patch(net, x, y, layernum, gradient_idx, show_graph)
+    net.layers{end}.class = y;
+    res = vl_simplenn(net, x, 1);
 
     x_l = res(layernum+1).x;
 
@@ -41,12 +20,16 @@ function bounding_box = test_patch(net, x, y, layernum, gradient_idx, show_graph
     mask = dzdx_im_gap ~= dzdx_mode;
     [r_start,c_start] = find(mask,1,'first');
     [r_end,c_end] = find(mask,1,'last');
-    bounding_box = [r_start, c_start, r_end-r_start, c_end-c_start];
+    bounding_box = [r_start, c_start, r_end-r_start+1, c_end-c_start+1];
     
     if show_graph,
         figure;
         subplot(2,2,1);
-        imshow(normalize(x + net.meta.normalization.averageImage));
+        if isfield(net.meta,'normalization') && isfield(net.meta.normalization, 'averageImage')
+            imshow(normalize(x + net.meta.normalization.averageImage));
+        else
+            imshow(x);
+        end
         hold on;
         rectangle('Position', bounding_box, 'EdgeColor', 'r', 'LineWidth', 2);
         hold off;

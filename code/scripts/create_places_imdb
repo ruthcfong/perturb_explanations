@@ -1,0 +1,4 @@
+% function create_imdb_for_places(split_csv_filepath, images_dirpath)
+split_csv_filepath = '/data/datasets/places205/trainvalsplit_places205/val_places205.csv';
+images_dirpath = '/data/datasets/places205/images256';
+s

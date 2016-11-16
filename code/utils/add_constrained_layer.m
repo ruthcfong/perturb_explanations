@@ -31,7 +31,7 @@ function res_ = constraint_forward(ly, res, res_)
                 case 4
                     size_x = size(res.x);
                     x = reshape(res.x, [prod(size_x(1:2)), size_x(3), size_x(4)]);
-                    norm_2 = sqrt(sum(abs(x).^2,1));
+                    norm_2 = sqrt(sum(abs(x).^2,1)); % this could also be a max operation for feature map
                     [~, sorted_idx] = sort(norm_2,2);
                     y = zeros(size_x, 'single');
                     top_idx = squeeze(sorted_idx(:,end-ly.num_top_filters+1:end,:));
