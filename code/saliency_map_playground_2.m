@@ -1,9 +1,9 @@
 %% set parameters
-load_network = false;
-load_data = false;
-run_on_batch = false;
+load_network = true;
+load_data = true;
+run_on_batch = true;
 show_figures = false;
-is_local = false;
+is_local = true;
 dataset = 'places';
 
 
@@ -42,7 +42,11 @@ if load_network
             load('/home/ruthfong/packages/matconvnet/data/mnist-baseline-simplenn/net-final.mat');
         end
     else
-        net = load('/home/ruthfong/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
+        if is_local
+            net = load('/Users/brian/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
+        else
+            net = load('/home/ruthfong/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
+        end
     end
 end
 
@@ -55,7 +59,11 @@ if load_data
             imdb = load('/home/ruthfong/packages/matconvnet/data/mnist-baseline-simplenn/imdb.mat');
         end
     else
-        imdb = load('/data/datasets/places205/imdb_val_resized_227.mat');
+        if is_local
+            imdb = load('/Users/brian/neural_coding/data/places205_imdb_val.mat');
+        else
+            imdb = load('/data/datasets/places205/imdb_val_resized_227.mat');
+        end
     end
 end
 
