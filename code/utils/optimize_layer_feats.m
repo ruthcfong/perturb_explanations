@@ -1,8 +1,5 @@
-function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
-    opts.batch_range = 1:1000;
-    opts.img_i = 1;
-    opts.class_offset = 0;
-    opts.null_img = zeros(size(imdb.images.data_mean));
+function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
+    %opts.null_img = zeros(size(imdb.images.data_mean));
     opts.num_iters = 500;
     opts.learning_rate = 0.95;
     opts.lambda = 1e-6;
@@ -11,6 +8,7 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
     opts.plot_step = floor(opts.num_iters/20);
     opts.debug = false;
     opts.mask_dims = 2;
+    opts.loss = 'softmaxloss';
     
     opts = vl_argparse(opts, varargin);
     
@@ -20,22 +18,28 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
     net = convert_net_value_type(net, type_fh);
     
     img_size = size(net.meta.normalization.averageImage);
-    img = imdb.images.data(:,:,:,opts.batch_range(opts.img_i));
     rf_info = get_rf_info(net);
     
-    % get maximum feature map (similar to Fergus and Zeiler, 2014)
-    [~, max_feature_idx] = max(sum(sum(res(layer+1).x(:,:,:,opts.img_i),1),2));
-
+    if isfield(net.meta.classes,'description')
+        classes = net.meta.classes.description;
+    else
+        classes = net.meta.classes;
+    end
+    
     % prepare truncated network
-    target_class = imdb.images.labels(opts.batch_range(opts.img_i)) + opts.class_offset;
     net.layers{end}.class = type_fh(target_class);
     % res_null = vl_simplenn(net, opts.null_img, 1);
     
     tnet = truncate_net(net, layer+1, length(net.layers));
 
-    actual_feats = type_fh(res(layer+1).x(:,:,:,opts.img_i));
+    res = vl_simplenn(net, img,1);
+    actual_feats = type_fh(res(layer+1).x);
     size_feats = size(actual_feats);
     % null_feats = res_null(layer+1).x;
+    
+    % get maximum feature map (similar to Fergus and Zeiler, 2014)
+    [~, max_feature_idx] = max(sum(sum(res(layer+1).x,1),2));
+
 
     switch opts.mask_dims
         case 1
@@ -54,7 +58,7 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
 
     tnet_cam = tnet;
     tnet_cam.layers = tnet_cam.layers(1:end-1); % exclude softmax loss layer
-    gradient = zeros(size(res(end-1).x(:,:,:,opts.img_i)), type);
+    gradient = zeros(size(res(end-1).x), type);
     gradient(target_class) = 1;
     res_orig_cam = vl_simplenn(tnet_cam, actual_feats, gradient);
     
@@ -62,12 +66,27 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
     cam_map_orig = bsxfun(@max, sum(bsxfun(@times, res_orig_cam(1).x, cam_weights_orig),3), 0);
     large_heatmap_orig = map2jpg(im2double(imresize(cam_map_orig, img_size(1:2))));
 
-    display_im = normalize(img+imdb.images.data_mean);
+    display_im = normalize(img+net.meta.normalization.averageImage);
 
-    orig_err = -log(exp(res(end-1).x(:,:,target_class,opts.img_i))/(...
-        sum(exp(res(end-1).x(:,:,:,opts.img_i)))));
-    %orig_err = mean((res_orig_cam(end).x - gradient).^2);
-    
+    [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+    num_top_scores = 5;
+    interested_scores = zeros([num_top_scores+1 opts.num_iters]);
+    switch opts.loss
+        case 'softmaxloss'
+            orig_err = -log(exp(res(end-1).x(:,:,target_class))/(...
+                sum(exp(res(end-1).x))));
+        case 'min_classlabel'
+            orig_err = res_orig_cam(end).x(:,:,target_class);
+            %orig_err = mean((res_orig_cam(end).x - gradient).^2);
+        case 'max_classlabel'
+            orig_err = res_orig_cam(end).x(:,:,target_class);
+            neg_gradient = zeros(size(res(end-1).x), type);
+            neg_gradient(target_class) = -1;
+
+        otherwise
+            assert(false);
+    end
+        
     fig = figure;
     for t=1:opts.num_iters,
         switch opts.mask_dims
@@ -82,12 +101,28 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                 mask_t(:,:,:,t) = mask;
                 x = actual_feats .* mask;
         end
-        tres = vl_simplenn(tnet, x, 1);
-        E(1,t) = tres(end).x;
-        %tres = vl_simplenn(tnet_cam, x, gradient);
-        %E(1,t) = mean((tres(end).x - gradient).^2);
+        
         E(2,t) = opts.lambda * sum(abs(mask(:)));
+
+        switch opts.loss
+            case 'softmaxloss'
+                tres = vl_simplenn(tnet, x, 1);
+                E(1,t) = tres(end).x;
+            case 'min_classlabel'
+                tres = vl_simplenn(tnet_cam, x, gradient);
+                E(1,t) = tres(end).x(:,:,target_class);
+                E(2,t) = opts.lambda * sum(abs(1-mask(:)));
+            case 'max_classlabel'
+                tres = vl_simplenn(tnet_cam, x, neg_gradient);
+                E(1,t) = tres(end).x(:,:,target_class);
+            otherwise
+                assert(false);
+        end
         E(3,t) = E(1,t) + E(2,t);
+                 
+        interested_scores(1:num_top_scores,t) = tres(end-1).x(sorted_orig_class_idx(1:num_top_scores));
+        interested_scores(end,t) = tres(end-1).x(target_class);
+        
         switch opts.mask_dims
             case 1
                 softmax_der = sum(sum(tres(1).dzdx.*actual_feats,1),2);
@@ -98,7 +133,13 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                 softmax_der = tres(1).dzdx.*actual_feats;
                 %reg_der = sign(mask);
         end
-        reg_der = sign(mask);
+        
+        if strcmp(opts.loss, 'min_classlabel')      
+            reg_der = sign(1-mask);
+        else
+            reg_der = sign(mask);
+        end
+
         mask = mask - opts.learning_rate*(softmax_der+opts.lambda*reg_der);
         mask(mask > 1) = 1;
         mask(mask < 0) = 0;
@@ -120,19 +161,19 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
 
             switch opts.mask_dims
                 case 1
-                    subplot(2,3,1);
-                    actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx,opts.img_i);
+                    subplot(3,3,1);
+                    actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx);
                     curr_saliency_map = get_saliency_map_from_difference_map(...
                         actual_max_feat_map - x(:,:,max_feature_idx), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Max Feat Saliency');
 
-                    subplot(2,3,2);
-                    curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x(:,:,:,opts.img_i) ...
+                    subplot(3,3,2);
+                    curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x ...
                         - x,3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Avg Feats Saliency');
 
                     res_new_cam = vl_simplenn(tnet_cam, x, gradient);
@@ -143,26 +184,30 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
 %                     hm_new = map2jpg(im2double(imresize(mean(x .* tres(1).dzdx,3), img_size(1:2))), [], 'jet');
 %                     hm_old = map2jpg(im2double(imresize(mean(actual_feats .* ...
 %                         res(layer+1).dzdx(:,:,:,opts.img_i),3), img_size(1:2) )), [], 'jet');
-                    
-                    subplot(2,3,3);
+                                        
+                    [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
+
+                    subplot(3,3,3);
                     imshow(display_im*0.3 + large_heatmap_new*0.7);
-                    title('Grad-CAM Opt Feats');
-                    subplot(2,3,5);
+                    title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
+                    subplot(3,3,5);
                     imshow(display_im*0.3 + large_heatmap_orig*0.7);
-                    title('Grad-CAM Orig Feats');
+                    title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
+                        [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+
 %                     subplot(2,3,3);
 %                     curr_saliency_map = get_saliency_map_from_difference_map(mask, layer, rf_info, img_size);
 %                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
 %                     imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
 %                     title('Mask Saliency');
 
-                    subplot(2,3,4);
+                    subplot(3,3,4);
                     imagesc(reshape(mask,[ceil(sqrt(length(mask))), ceil(sqrt(length(mask)))]));
                     colorbar;
                     axis square;
                     title('feature mask');
 
-                    subplot(2,3,6);
+                    subplot(3,3,6);
                     plot(transpose(E(1,1:t)));
                     hold on;
                     plot(transpose(E(3,1:t)));
@@ -172,27 +217,37 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                     title(sprintf('log(lr) = %.2f, log(lambda) = %.2f', log10(opts.learning_rate), log10(opts.lambda)));
                     %legend('Softmax Loss','Tot Loss','Orig SM Loss');
 
+                    subplot(3,3,7);
+                    imshow(display_im);
+                    title('orig im');
+                    
+                    subplot(3,3,8);
+                    plot(transpose(interested_scores(:,1:t)));
+                    axis square;
+                    %legend([classes(sorted_orig_class_idx(1:num_top_scores)) classes(target_class)]);
+                    title(sprintf('top %d scores', num_top_scores));
+
                     drawnow;
                 case 2
                     subplot(3,3,1);
-                    actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx,opts.img_i);
+                    actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx);
                     curr_saliency_map = get_saliency_map_from_difference_map(...
                         actual_max_feat_map - x(:,:,max_feature_idx), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Max Feat Saliency');
 
                     subplot(3,3,2);
-                    curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x(:,:,:,opts.img_i) ...
+                    curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x ...
                         - x,3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Avg Feats Saliency');
 
                     subplot(3,3,3);
                     curr_saliency_map = get_saliency_map_from_difference_map(mask, layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Mask Saliency');
 
 %                     hm_new = map2jpg(im2double(imresize(bsxfun(@max,sum(...
@@ -209,12 +264,21 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                     cam_map_new = bsxfun(@max, sum(bsxfun(@times, res_new_cam(1).x, cam_weights_new),3), 0);
                     large_heatmap_new = map2jpg(im2double(imresize(cam_map_new, img_size(1:2))));
                     
+                    [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
+
                     subplot(3,3,4);
                     imshow(display_im*0.3 + large_heatmap_new*0.7);
-                    title('Grad-CAM Opt Feats');
+                    title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
                     subplot(3,3,5);
                     imshow(display_im*0.3 + large_heatmap_orig*0.7);
-                    title('Grad-CAM Orig Feats');
+                    title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
+                        [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+
+                    subplot(3,3,6);
+                    plot(transpose(interested_scores(:,1:t)));
+                    axis square;
+                    %legend([classes(sorted_orig_class_idx(1:num_top_scores)) classes(target_class)]);
+                    title(sprintf('top %d scores', num_top_scores));
                     
                     subplot(3,3,7);
                     imagesc(mask);
@@ -240,30 +304,30 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                     drawnow;
                 case 3
                     subplot(3,3,1);
-                    actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx,opts.img_i);
+                    actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx);
                     curr_saliency_map = get_saliency_map_from_difference_map(...
                         actual_max_feat_map - x(:,:,max_feature_idx), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Max Feat Saliency');
 
                     subplot(3,3,2);
-                    curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x(:,:,:,opts.img_i) ...
+                    curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x ...
                         - x,3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Avg Feats Saliency');
 
                     subplot(3,3,3);
                     curr_saliency_map = get_saliency_map_from_difference_map(mean(mask,3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Mean Mask Saliency');
 
                     subplot(3,3,4);
                     curr_saliency_map = get_saliency_map_from_difference_map(mask(:,:,max_feature_idx), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(normalize((img+imdb.images.data_mean).*curr_saliency_map_rep));
+                    imshow(display_im.*curr_saliency_map_rep);
                     title('Max Mask Saliency');
 
                     subplot(3,3,5);
@@ -271,6 +335,10 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                     colorbar;
                     axis square;
                     title('Max Mask');
+
+%                     max_mask = map2jpg(im2double(imresize(max(mask,[],3),img_size(1:2))));
+%                     imshow(display_im*0.3 + max_mask*0.7);
+%                     title('Max Mask Overlay');
 
                     subplot(3,3,6);
                     plot(transpose(E(1,1:t)));
@@ -289,13 +357,16 @@ function new_res = optimize_layer_feats(net, imdb, res, layer, varargin)
                     cam_map_new = bsxfun(@max, sum(bsxfun(@times, res_new_cam(1).x, cam_weights_new),3), 0);
                     large_heatmap_new = map2jpg(im2double(imresize(cam_map_new, img_size(1:2))));
                     
+                    [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
+
                     subplot(3,3,7);
                     imshow(display_im*0.3 + large_heatmap_new*0.7);
-                    title('Grad-CAM Opt Feats');
-                    
+                    title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
                     subplot(3,3,8);
                     imshow(display_im*0.3 + large_heatmap_orig*0.7);
-                    title('Grad-CAM Orig Feats');
+                    title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
+                        [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+
                     
                     subplot(3,3,9);
                     imshow(display_im*0.3 + hm_mask*0.7);

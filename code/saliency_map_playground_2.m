@@ -1,10 +1,10 @@
 %% set parameters
-load_network = true;
-load_data = true;
-run_on_batch = true;
+load_network = false;
+load_data = false;
+run_on_batch = false;
 show_figures = false;
-is_local = true;
-dataset = 'places';
+is_local = false;
+dataset = 'imagenet';
 
 
 switch dataset
@@ -27,6 +27,14 @@ switch dataset
         if exist('places_res')
             res = places_res;
         end
+    case 'imagenet' % relu5 in imagenet alexnet
+        batch_range = 1:10000; 
+        start_l = 14;
+        end_l = 20;
+        if exist('val_imdb_small')
+            imdb = val_imdb_small;
+        end
+        class_offset = 0;
     otherwise
         assert(false);
 end
@@ -35,87 +43,110 @@ end
 
 % load network
 if load_network
-    if strcmp(dataset, 'mnist')
-        if is_local
-            load('/Users/brian/matconvnet-1.0-beta21/data/trained_nets/mnist-net.mat');
-        else
-            load('/home/ruthfong/packages/matconvnet/data/mnist-baseline-simplenn/net-final.mat');
-        end
-    else
-        if is_local
-            net = load('/Users/brian/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
-        else
-            net = load('/home/ruthfong/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
-        end
+    switch dataset
+        case 'mnist'
+            if is_local
+                load('/Users/brian/matconvnet-1.0-beta21/data/trained_nets/mnist-net.mat');
+            else
+                load('/home/ruthfong/packages/matconvnet/data/mnist-baseline-simplenn/net-final.mat');
+            end
+        case 'places'
+            if is_local
+                net = load('/Users/brian/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
+            else
+                net = load('/home/ruthfong/neural_coding/models/places-caffe-ref-upgraded-tidy-with-classes.mat');
+            end
+        case 'imagenet'
+            net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-caffe-alex.mat');
     end
 end
 
 % load images
 if load_data
-    if strcmp(dataset, 'mnist')
-        if is_local
-            imdb = load('/Users/brian/matconvnet-1.0-beta21/data/mnist/imdb.mat');
-        else
-            imdb = load('/home/ruthfong/packages/matconvnet/data/mnist-baseline-simplenn/imdb.mat');
-        end
-    else
-        if is_local
-            imdb = load('/Users/brian/neural_coding/data/places205_imdb_val.mat');
-        else
-            imdb = load('/data/datasets/places205/imdb_val_resized_227.mat');
-        end
+    switch dataset
+        case 'mnist'
+            if is_local
+                imdb = load('/Users/brian/matconvnet-1.0-beta21/data/mnist/imdb.mat');
+            else
+                imdb = load('/home/ruthfong/packages/matconvnet/data/mnist-baseline-simplenn/imdb.mat');
+            end
+        case 'places'
+            if is_local
+                imdb = load('/Users/brian/neural_coding/data/places205_imdb_val.mat');
+            else
+                imdb = load('/data/datasets/places205/imdb_val_resized_227.mat');
+            end
+        case 'imagenet'
+            imdb = load('/data/ruthfong/ILSVRC2012/val_imdb_small.mat');
     end
+end
+
+%% add a softmaxloss layer if needed
+if ~isequal(net.layers{end}.type, 'softmaxloss')
+    net.layers{end+1} = struct('type', 'softmaxloss') ;
 end
 
 %% forward and backward pass
-
 if run_on_batch
-    % for places alexnet, add a loss layer
-    if strcmp(dataset, 'places') && ~isequal(net.layers{end}.type, 'softmaxloss')
-        net.layers{end+1} = struct('type', 'softmaxloss') ;
-    end
-
     net.layers{end}.class = imdb.images.labels(batch_range) + class_offset;
     res = vl_simplenn(net, imdb.images.data(:,:,:,batch_range),1);
 end
-%% load variables
-null_img = mean(imdb.images.data(:,:,:,batch_range),4);
-layer = 14;
 
-img_idx = [1 12 21 32 42 52 61 79 83];
+
+%% load variables
+%null_img = mean(imdb.images.data(:,:,:,batch_range),4);
+layer = 15;
+
+img_idx = 1:1000;
 %img_idx = [32];
 
 opts = struct();
-opts.batch_range = batch_range;
-opts.class_offset = class_offset;
-opts.null_img = null_img;
+%opts.batch_range = batch_range;
+%opts.class_offset = class_offset;
+%opts.null_img = null_img;
 opts.num_iters = 500;
-opts.mask_dims = 3;
-switch opts.mask_dims
-    case 1
-        opts.learning_rate = 2e1;
-        opts.lambda = 5e-4;
-    case 2
-        opts.learning_rate = 2e1;
-        opts.lambda = 5e-5;
-    case 3
-        opts.learning_rate = 2e1;
-        opts.lambda = 1e-6;
-end
 opts.plot_step = 50;
 opts.debug = true;
 opts.save_fig_path = '';
 opts.save_res_path = '';
+opts.loss = 'softmaxloss';
+
 for i=1:length(img_idx),
     curr_opts = opts;
     img_i = img_idx(i);
-    curr_opts.img_i = img_i;
-     curr_opts.save_fig_path = fullfile('/home/ruthfong/neural_coding/figures3/places/L14/softmaxloss/figures/', ...
-         strcat(num2str(img_i), '_mask_dim_3.jpg'));
-     curr_opts.save_res_path = fullfile('/home/ruthfong/neural_coding/figures3/places/L14/softmaxloss/results/', ...
-         strcat(num2str(img_i), '_mask_dim_3.mat'));
-    res_mask = optimize_layer_feats(net, imdb, res, layer, curr_opts);
+    img = imdb.images.data(:,:,:,img_i);
+    target_class = imdb.images.labels(img_i) + class_offset;
+    for m=1:1,
+        curr_opts.mask_dims = m;
+
+        switch curr_opts.mask_dims
+            case 1
+                curr_opts.learning_rate = 2e1;
+                curr_opts.lambda = 5e-4;
+            case 2
+                curr_opts.learning_rate = 2e1;
+                curr_opts.lambda = 5e-5;
+            case 3
+                curr_opts.learning_rate = 2e1;
+                curr_opts.lambda = 1e-6;
+        end
+        
+        curr_opts.save_fig_path = fullfile(sprintf('/home/ruthfong/neural_coding/figures5/%s/L%d/%s/reg_lambda_%f/', ...
+         dataset, layer, curr_opts.loss, curr_opts.lambda), ...
+         strcat(num2str(img_i), sprintf('_mask_dim_%d.jpg', curr_opts.mask_dims)));
+        curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results5/%s/L%d/%s/reg_lambda_%f/', ...
+         dataset, layer, curr_opts.loss, curr_opts.lambda), ...
+         strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', curr_opts.mask_dims)));
+
+%      curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results4/places/L%d/%s/', layer, opts.loss), ...
+%          strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', opts.mask_dims)));
+
+        res_mask = optimize_layer_feats(net, img, target_class, layer, curr_opts);
+
+    end
 end
+
+
 %%
 % figure;
 % for i=1:9
