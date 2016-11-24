@@ -403,16 +403,19 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     
     new_res = struct();
     
-    new_res.mask = mask_t;
-    new_res.error = E;
-    new_res.optimized_feats = x;
+%     new_res.mask = mask_t;
+%     new_res.error = E;
+%     new_res.optimized_feats = x;
+%     new_res.actual_feats = actual_feats;
+%     new_res.tnet = tnet;
+%     new_res.tnet_cam = tnet_cam;
+%     new_res.target_class = target_class;
+%     new_res.img = img;
+%     new_res.opts = opts;
+    new_res.mask = mask;
     new_res.actual_feats = actual_feats;
-    new_res.tnet = tnet;
-    new_res.tnet_cam = tnet_cam;
-    new_res.target_class = target_class;
-    new_res.img = img;
-    new_res.opts = opts;
-    
+%     new_res.layer = layer;
+%     new_res.opts = opts;
     
     if ~strcmp(opts.save_res_path, ''),
         [folder, ~, ~] = fileparts(opts.save_res_path);
