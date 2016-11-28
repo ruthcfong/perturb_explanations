@@ -1,16 +1,18 @@
-addpath('/home/ruthfong/neural_coding/code/utils');
 visualize_different_layers = false;
 
-% object_net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-caffe-alex.mat');
-% img = imread('/data/datasets/ILSVRC2012/images/val/ILSVRC2012_val_00039180.JPEG');
+object_net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-caffe-alex.mat');
+img_i = 25260;
+img = imread(imdb_paths.images.paths{img_i});
+img = cnn_normalize(object_net.meta.normalization, img, true);
+target_class = imdb_paths.images.labels(img_i);
 
-object_net = net;
-object_net.layers = object_net.layers(1:end-1);
-img_i = batch_range(13);
-img = single(imdb.images.data(:,:,:,img_i));
-
-img = imresize(img, object_net.meta.normalization.imageSize(1:2));
-display_img = img + object_net.meta.normalization.averageImage;
+% object_net = net;
+% object_net.layers = object_net.layers(1:end-1);
+% img_i = batch_range(13);
+% img = single(imdb.images.data(:,:,:,img_i));
+% 
+% img = imresize(img, object_net.meta.normalization.imageSize(1:2));
+% display_img = img + object_net.meta.normalization.averageImage;
 
 %img = single(img) - single(object_net.meta.normalization.averageImage);
 
@@ -30,13 +32,13 @@ softmax_norm = sum(exp(res_cam(end).x));
 figure;
 
 subplot(2,3,1);
-imshow(normalize(display_img));
+imshow(normalize(img));
 if (isfield(object_net.meta.classes, 'description'))
     title(sprintf('Orig Img: %s', object_net.meta.classes.description{...
-        imdb.images.labels(img_i)}));
+        target_class}));
 else
     title(sprintf('Orig Img: %s', object_net.meta.classes{...
-        imdb.images.labels(img_i)}));
+        target_class}));
 end
 
 
@@ -52,7 +54,7 @@ for i=1:num_top
     large_heatmap = map2jpg(im2double(imresize(map, img_size(1:2))));
 
     subplot(2,3,i+1);
-    imshow(normalize(im2double(display_img))*0.3 + 0.7*large_heatmap);
+    imshow(normalize(img)*0.3 + 0.7*large_heatmap);
     if isfield(object_net.meta.classes, 'description')
         title(sprintf('%f: %s', score, object_net.meta.classes.description{c}));
     else

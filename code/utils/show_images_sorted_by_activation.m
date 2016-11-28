@@ -1,9 +1,10 @@
-function show_images_sorted_by_activation(imdb, activations, varargin)
-    data_size = size(imdb.images.data);
+function show_images_sorted_by_activation(data, activations, varargin)
+    data_size = size(data);
     activation_size = size(activations);
     opts.batch_range = 1:data_size(end);
     opts.space_type = 'spaced_out';
-    opts.num_images = 100;
+    opts.fig_path = '';
+    opts.num_images = min(100, data_size(end));
     opts.all_step = 1;
     opts.activation_layer = -1;
     opts.rf_info = {};
@@ -30,28 +31,18 @@ function show_images_sorted_by_activation(imdb, activations, varargin)
     num_on_side = ceil(sqrt(opts.num_images));
     
     for n=1:num_figures,
-        figure;
+        f = figure('units','normalized','outerposition',[0 0 1 1]); % open a maxed out figure
         for i=1:opts.num_images
             subplot(num_on_side, num_on_side, i); 
             idx = sorted_idx(space_range(i+opts.num_images*(n-1)));
             if length(activation_size) < 3
-                if isfield(imdb.images, 'data_mean')
-                    imshow(normalize(imdb.images.data(:,:,:,opts.batch_range(idx)) + ...
-                        imdb.images.data_mean));
-                else
-                    imshow(imdb.images.data(:,:,:,opts.batch_range(idx)));
-                end
+                imshow(normalize(data(:,:,:,opts.batch_range(idx))));
                 title([num2str(idx), ': ', num2str(activations(idx), '%.2f')]);
             else
                 feature_map_size = prod(activation_size(1:end-1));
                 img_i = ceil(idx/feature_map_size);
-                if isfield(imdb.images, 'data_mean')
-                    orig_img = normalize(imdb.images.data(:,:,:,opts.batch_range(img_i)) + ...
-                        imdb.images.data_mean);
-                else
-                    orig_img = imdb.images.data(:,:,:,opts.batch_range(img_i));
-                end
-                [y_i, x_i, ~, img_i] = ind2sub(activation_size, idx);
+                orig_img = normalize(data(:,:,:,opts.batch_range(img_i)));
+                [y_i, x_i, ~, ~] = ind2sub(activation_size, idx);
                 img_size = size(orig_img);
                 bb_x_start = max(1,opts.rf_info.stride(opts.activation_layer) ...
                     * x_i + opts.rf_info.offset(opts.activation_layer) ...
@@ -67,6 +58,17 @@ function show_images_sorted_by_activation(imdb, activations, varargin)
                     imshow(orig_img(bb_y_start:bb_y_end,bb_x_start:bb_x_end,:));
                 end
                 title([num2str(img_i), ': ', num2str(activations(idx), '%.2f')]);
+            end
+        end
+        if ~isempty(opts.fig_path)
+            if num_figures == 1
+                fig_path = opts.fig_path;
+                prep_path(fig_path);
+                print(f, fig_path, '-djpeg');
+            else
+                [folder, name, ext] = fileparts(opts.fig_path);
+                fig_path = fullfile(folder, sprintf('%s_%d%s', name, n, ext));
+                print(f, fig_path, '-djpeg');
             end
         end
     end

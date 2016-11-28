@@ -1,6 +1,6 @@
 %% set parameters
-load_network = false;
-load_data = false;
+load_network = true;
+load_data = true;
 run_on_batch = false;
 show_figures = false;
 is_local = false;
@@ -31,9 +31,9 @@ switch dataset
         batch_range = 1:10000; 
         start_l = 14;
         end_l = 20;
-        if exist('val_imdb_small')
-            imdb = val_imdb_small;
-        end
+%         if exist('val_imdb_small')
+%             imdb = val_imdb_small;
+%         end
         class_offset = 0;
     otherwise
         assert(false);
@@ -77,7 +77,7 @@ if load_data
                 imdb = load('/data/datasets/places205/imdb_val_resized_227.mat');
             end
         case 'imagenet'
-            imdb = load('/data/ruthfong/ILSVRC2012/val_imdb_small.mat');
+            imdb_paths = load('/data/ruthfong/ILSVRC2012/val_imdb_paths_small.mat');
     end
 end
 
@@ -87,19 +87,19 @@ if ~isequal(net.layers{end}.type, 'softmaxloss')
 end
 
 %% forward and backward pass
-if run_on_batch
-    net.layers{end}.class = imdb.images.labels(batch_range) + class_offset;
-    res = vl_simplenn(net, imdb.images.data(:,:,:,batch_range),1);
-end
+% if run_on_batch
+%     net.layers{end}.class = imdb.images.labels(batch_range) + class_offset;
+%     res = vl_simplenn(net, imdb.images.data(:,:,:,batch_range),1);
+% end
 
 
 %% load variables
 %null_img = mean(imdb.images.data(:,:,:,batch_range),4);
 layer = 15;
 
-img_idx = 1:1000;
+%img_idx = 1:1000;
 %img_idx = [32];
-
+img_idx = [58];
 opts = struct();
 %opts.batch_range = batch_range;
 %opts.class_offset = class_offset;
@@ -114,35 +114,37 @@ opts.loss = 'softmaxloss';
 for i=1:length(img_idx),
     curr_opts = opts;
     img_i = img_idx(i);
-    img = imdb.images.data(:,:,:,img_i);
-    target_class = imdb.images.labels(img_i) + class_offset;
-    for m=1:1,
+    img = cnn_normalize(net.meta.normalization, imread(imdb_paths.images.paths{img_i}), true);
+    target_class = imdb_paths.images.labels(img_i) + class_offset;
+    for m=2:2,
         curr_opts.mask_dims = m;
 
         switch curr_opts.mask_dims
             case 1
                 curr_opts.learning_rate = 2e1;
                 curr_opts.lambda = 5e-4;
+                curr_opts.tv_lambda = 0;
             case 2
                 curr_opts.learning_rate = 2e1;
-                curr_opts.lambda = 5e-5;
+                curr_opts.lambda = 1e-3; %5e-5;
+                curr_opts.tv_lambda = 1e-3;
             case 3
                 curr_opts.learning_rate = 2e1;
                 curr_opts.lambda = 1e-6;
+                curr_opts.tv_lambda = 0;
         end
         
-        curr_opts.save_fig_path = fullfile(sprintf('/home/ruthfong/neural_coding/figures5/%s/L%d/%s/reg_lambda_%f/', ...
-         dataset, layer, curr_opts.loss, curr_opts.lambda), ...
-         strcat(num2str(img_i), sprintf('_mask_dim_%d.jpg', curr_opts.mask_dims)));
-        curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results5/%s/L%d/%s/reg_lambda_%f/', ...
-         dataset, layer, curr_opts.loss, curr_opts.lambda), ...
-         strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', curr_opts.mask_dims)));
+%         curr_opts.save_fig_path = fullfile(sprintf('/home/ruthfong/neural_coding/figures5/%s/L%d/%s/reg_lambda_%f/', ...
+%          dataset, layer, curr_opts.loss, curr_opts.lambda), ...
+%          strcat(num2str(img_i), sprintf('_mask_dim_%d.jpg', curr_opts.mask_dims)));
+%         curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results5/%s/L%d/%s/reg_lambda_%f/', ...
+%          dataset, layer, curr_opts.loss, curr_opts.lambda), ...
+%          strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', curr_opts.mask_dims)));
 
 %      curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results4/places/L%d/%s/', layer, opts.loss), ...
 %          strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', opts.mask_dims)));
 
         res_mask = optimize_layer_feats(net, img, target_class, layer, curr_opts);
-
     end
 end
 

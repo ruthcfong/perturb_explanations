@@ -3,6 +3,8 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     opts.num_iters = 500;
     opts.learning_rate = 0.95;
     opts.lambda = 1e-6;
+    opts.tv_lambda = 0;
+    opts.beta = 1;
     opts.save_fig_path = '';
     opts.save_res_path = '';
     opts.plot_step = floor(opts.num_iters/20);
@@ -12,8 +14,8 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     
     opts = vl_argparse(opts, varargin);
     
-    type = 'double';
-    type_fh = @double;
+    type = 'single';
+    type_fh = @single;
     
     net = convert_net_value_type(net, type_fh);
     
@@ -54,7 +56,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         otherwise
             assert(false);
     end
-    E = zeros([3 opts.num_iters]);
+    E = zeros([4 opts.num_iters]);
 
     tnet_cam = tnet;
     tnet_cam.layers = tnet_cam.layers(1:end-1); % exclude softmax loss layer
@@ -103,6 +105,17 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         end
         
         E(2,t) = opts.lambda * sum(abs(mask(:)));
+        
+        % use tv-norm for spatial mask
+        if opts.mask_dims == 2
+            [tv_err, tv_der] = tv(mask, opts.beta);
+        else
+            tv_err = 0;
+            tv_der = zeros(size(mask), type);
+        end
+        
+        E(3,t) = opts.tv_lambda* tv_err;
+
 
         switch opts.loss
             case 'softmaxloss'
@@ -118,7 +131,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             otherwise
                 assert(false);
         end
-        E(3,t) = E(1,t) + E(2,t);
+        E(4,t) = sum(E(1:end-1,t));
                  
         interested_scores(1:num_top_scores,t) = tres(end-1).x(sorted_orig_class_idx(1:num_top_scores));
         interested_scores(end,t) = tres(end-1).x(target_class);
@@ -139,8 +152,9 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         else
             reg_der = sign(mask);
         end
-
-        mask = mask - opts.learning_rate*(softmax_der+opts.lambda*reg_der);
+        
+        mask = mask - opts.learning_rate*(softmax_der+opts.lambda*reg_der...
+            +opts.tv_lambda*tv_der);
         mask(mask > 1) = 1;
         mask(mask < 0) = 0;
 
@@ -188,10 +202,10 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
 
                     subplot(3,3,3);
-                    imshow(display_im*0.3 + large_heatmap_new*0.7);
+                    imshow(display_im*0.5 + large_heatmap_new*0.5);
                     title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
                     subplot(3,3,5);
-                    imshow(display_im*0.3 + large_heatmap_orig*0.7);
+                    imshow(display_im*0.5 + large_heatmap_orig*0.5);
                     title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
@@ -267,10 +281,10 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
 
                     subplot(3,3,4);
-                    imshow(display_im*0.3 + large_heatmap_new*0.7);
+                    imshow(display_im*0.5 + large_heatmap_new*0.5);
                     title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
                     subplot(3,3,5);
-                    imshow(display_im*0.3 + large_heatmap_orig*0.7);
+                    imshow(display_im*0.5 + large_heatmap_orig*0.5);
                     title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
@@ -285,15 +299,21 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     colorbar;
                     axis square;
                     title('spatial mask');
-
+                    
                     subplot(3,3,8);
-                    imshow(display_im*0.3 + hm_mask*0.7);
-                    title('mask overlay');
+                    imagesc(tv_der);
+                    colorbar;
+                    axis square;
+                    title('tv der');
+
+%                     subplot(3,3,8);
+%                     imshow(display_im*0.5 + hm_mask*0.5);
+%                     title('mask overlay');
                     
                     subplot(3,3,9);
                     plot(transpose(E(1,1:t)));
                     hold on;
-                    plot(transpose(E(3,1:t)));
+                    plot(transpose(E(end,1:t)));
                     plot(repmat(orig_err, [1 t]));
                     hold off;
                     axis square;
@@ -337,13 +357,13 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     title('Max Mask');
 
 %                     max_mask = map2jpg(im2double(imresize(max(mask,[],3),img_size(1:2))));
-%                     imshow(display_im*0.3 + max_mask*0.7);
+%                     imshow(display_im*0.5 + max_mask*0.5);
 %                     title('Max Mask Overlay');
 
                     subplot(3,3,6);
                     plot(transpose(E(1,1:t)));
                     hold on;
-                    plot(transpose(E(3,1:t)));
+                    plot(transpose(E(end,1:t)));
                     plot(repmat(orig_err, [1 t]));
                     hold off;
                     axis square;
@@ -360,25 +380,25 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
 
                     subplot(3,3,7);
-                    imshow(display_im*0.3 + large_heatmap_new*0.7);
+                    imshow(display_im*0.5 + large_heatmap_new*0.5);
                     title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
                     subplot(3,3,8);
-                    imshow(display_im*0.3 + large_heatmap_orig*0.7);
+                    imshow(display_im*0.5 + large_heatmap_orig*0.5);
                     title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
                     
                     subplot(3,3,9);
-                    imshow(display_im*0.3 + hm_mask*0.7);
+                    imshow(display_im*0.5 + hm_mask*0.5);
                     title('Mean Mask Overlay');
                     
                     drawnow;
             end
-            fprintf(strcat('loss at epoch %d : orig: %f, softmax: %f, reg: %f, tot: %f\n', ...
-                'derivs at epoch %d: softmax: %f, reg (unnorm): %f, reg (norm): %f\n'), ...
-                t, orig_err, E(1,t), E(2,t), E(3,t), t, mean(softmax_der(:)), ...
-                mean(reg_der(:)), opts.lambda * mean(reg_der(:)));
-            
+            fprintf(strcat('loss at epoch %d: orig: %f, softmax: %f, reg: %f, tv: %f, tot: %f\n', ...
+                'derivs at epoch %d: softmax: %f, reg (unnorm): %f, reg (norm): %f, tv (unnorm): %f, tv (norm): %f\n'), ...
+                t, orig_err, E(1,t), E(2,t), E(3,t), E(4,t), t, mean(softmax_der(:)), ...
+                mean(reg_der(:)), opts.lambda * mean(reg_der(:)), ...
+                mean(abs(tv_der(:))), opts.tv_lambda * mean(abs(tv_der(:))));
         end
     end
     
@@ -424,5 +444,30 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         end
 
         save(opts.save_res_path, 'new_res');
+    end
+end
+
+
+
+% --------------------------------------------------------------------
+function [e, dx] = tv(x,beta)
+% --------------------------------------------------------------------
+    if(~exist('beta', 'var'))
+      beta = 1; % the power to which the TV norm is raized
+    end
+    d1 = x(:,[2:end end],:,:) - x ;
+    d2 = x([2:end end],:,:,:) - x ;
+    v = sqrt(d1.*d1 + d2.*d2).^beta ;
+    e = sum(sum(sum(sum(v)))) ;
+    if nargout > 1
+      d1_ = (max(v, 1e-5).^(2*(beta/2-1)/beta)) .* d1;
+      d2_ = (max(v, 1e-5).^(2*(beta/2-1)/beta)) .* d2;
+      d11 = d1_(:,[1 1:end-1],:,:) - d1_ ;
+      d22 = d2_([1 1:end-1],:,:,:) - d2_ ;
+      d11(:,1,:,:) = - d1_(:,1,:,:) ;
+      d22(1,:,:,:) = - d2_(1,:,:,:) ;
+      dx = beta*(d11 + d22);
+      if(any(isnan(dx)))
+      end
     end
 end
