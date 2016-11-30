@@ -21,7 +21,7 @@ function run_color_sensitivity_experiment(net, imdb_paths, class_i, layers)
     for i=1:length(layers)
         layer = layers(i);
         layer_name = net.layers{layer}.name;
-
+        disp(layer_name);
         size_feats = size(rgb_res(layer+1).x);
 
         diff_vol = rgb_res(layer+1).x - gray_res(layer+1).x;

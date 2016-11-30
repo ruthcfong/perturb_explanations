@@ -11,6 +11,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     opts.debug = false;
     opts.mask_dims = 2;
     opts.loss = 'softmaxloss';
+    opts.denom_reg = false;
     
     opts = vl_argparse(opts, varargin);
     
@@ -48,7 +49,11 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             mask = rand([1 1 size_feats(3)], type);
             mask_t = zeros([size_feats(3) opts.num_iters], type);
         case 2
-            mask = rand([size_feats(1:2) 1],type);
+%             if strcmp(opts.loss, 'min_classlabel')
+%                 mask = ones([size_feats(1:2) 1], type);
+%             else
+                mask = rand([size_feats(1:2) 1],type);
+%             end
             mask_t = zeros([size_feats(1:2) opts.num_iters],type);
         case 3
             mask = rand(size_feats,type);
@@ -56,7 +61,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         otherwise
             assert(false);
     end
-    E = zeros([4 opts.num_iters]);
+    E = zeros([5 opts.num_iters]);
 
     tnet_cam = tnet;
     tnet_cam.layers = tnet_cam.layers(1:end-1); % exclude softmax loss layer
@@ -73,6 +78,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
     num_top_scores = 5;
     interested_scores = zeros([num_top_scores+1 opts.num_iters]);
+    orig_denom = sum(exp(res(end-1).x));
     switch opts.loss
         case 'softmaxloss'
             orig_err = -log(exp(res(end-1).x(:,:,target_class))/(...
@@ -89,7 +95,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             assert(false);
     end
         
-    fig = figure;
+    fig = figure('units','normalized','outerposition',[0 0 1 1]); % open a maxed out figure
     for t=1:opts.num_iters,
         switch opts.mask_dims
             case 1
@@ -106,6 +112,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         
         E(2,t) = opts.lambda * sum(abs(mask(:)));
         
+        % use tv-norm for spatial mask only
         if opts.mask_dims == 2
             [tv_err, tv_der] = tv(mask, opts.beta);
         else
@@ -114,7 +121,15 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
         end
         
         E(3,t) = opts.tv_lambda* tv_err;
-
+        
+        if opts.denom_reg
+            curr_denom = sum(exp(tres(end-1).x));
+            E(4,t) = 0.5*abs(orig_denom - curr_denom)^2;
+            denom_der = sign(abs(orig_denom - curr_denom));
+        else
+            E(4,t) = 0;
+            denom_der = 0;
+        end
 
         switch opts.loss
             case 'softmaxloss'
@@ -130,7 +145,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             otherwise
                 assert(false);
         end
-        E(4,t) = sum(E(1:end-1,t));
+        E(end,t) = sum(E(1:end-1,t));
                  
         interested_scores(1:num_top_scores,t) = tres(end-1).x(sorted_orig_class_idx(1:num_top_scores));
         interested_scores(end,t) = tres(end-1).x(target_class);
@@ -140,19 +155,19 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                 softmax_der = sum(sum(tres(1).dzdx.*actual_feats,1),2);
             case 2
                 softmax_der = sum(tres(1).dzdx.*actual_feats,3);
-                %reg_der = sum(sign(mask),3);
             case 3
                 softmax_der = tres(1).dzdx.*actual_feats;
-                %reg_der = sign(mask);
         end
         
-        if strcmp(opts.loss, 'min_classlabel')      
-            reg_der = sign(1-mask);
+        if strcmp(opts.loss, 'min_classlabel')
+            reg_der = zeros(size(mask), type);
+            reg_der(mask < 1) = -1;
+            reg_der(mask > 1) = 1;
         else
             reg_der = sign(mask);
         end
-        
-        mask = mask - opts.learning_rate*(softmax_der+opts.lambda*reg_der...
+                
+        mask = mask - opts.learning_rate*(softmax_der + opts.lambda*(reg_der + denom_der)...
             +opts.tv_lambda*tv_der);
         mask(mask > 1) = 1;
         mask(mask < 0) = 0;
@@ -202,10 +217,12 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 
                     subplot(3,3,3);
                     imshow(display_im*0.5 + large_heatmap_new*0.5);
-                    title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
+                    title(sprintf('CAM Opt (%.3f: %s)', best_opt_score, ...
+                        get_short_class_name(net, best_opt_class_i, true)));
                     subplot(3,3,5);
                     imshow(display_im*0.5 + large_heatmap_orig*0.5);
-                    title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
+                    title(sprintf('CAM Orig (%.3f: %s)', sorted_orig_scores(1), ...
+                        get_short_class_name(net, sorted_orig_class_idx(1), true)));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
 %                     subplot(2,3,3);
@@ -223,12 +240,12 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     subplot(3,3,6);
                     plot(transpose(E(1,1:t)));
                     hold on;
-                    plot(transpose(E(3,1:t)));
+                    plot(transpose(E(end,1:t)));
                     plot(repmat(orig_err, [1 t]));
                     hold off;
                     axis square;
                     title(sprintf('log(lr) = %.2f, log(lambda) = %.2f', log10(opts.learning_rate), log10(opts.lambda)));
-                    %legend('Softmax Loss','Tot Loss','Orig SM Loss');
+                    legend('Loss','Loss + Reg','Orig Loss');
 
                     subplot(3,3,7);
                     imshow(display_im);
@@ -237,7 +254,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     subplot(3,3,8);
                     plot(transpose(interested_scores(:,1:t)));
                     axis square;
-                    %legend([classes(sorted_orig_class_idx(1:num_top_scores)) classes(target_class)]);
+                    legend([get_short_class_name(net, [squeeze(sorted_orig_class_idx(1:num_top_scores)); target_class], true)]);
                     title(sprintf('top %d scores', num_top_scores));
 
                     drawnow;
@@ -281,16 +298,18 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 
                     subplot(3,3,4);
                     imshow(display_im*0.5 + large_heatmap_new*0.5);
-                    title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
+                    title(sprintf('CAM Opt (%.3f: %s)', best_opt_score, ...
+                        get_short_class_name(net, best_opt_class_i, true)));
                     subplot(3,3,5);
                     imshow(display_im*0.5 + large_heatmap_orig*0.5);
-                    title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
+                    title(sprintf('CAM Orig (%.3f: %s)', sorted_orig_scores(1), ...
+                        get_short_class_name(net, sorted_orig_class_idx(1), true)));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
                     subplot(3,3,6);
                     plot(transpose(interested_scores(:,1:t)));
                     axis square;
-                    %legend([classes(sorted_orig_class_idx(1:num_top_scores)) classes(target_class)]);
+                    legend([get_short_class_name(net, [squeeze(sorted_orig_class_idx(1:num_top_scores)); target_class], true)]);
                     title(sprintf('top %d scores', num_top_scores));
                     
                     subplot(3,3,7);
@@ -299,15 +318,15 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     axis square;
                     title('spatial mask');
                     
-                    subplot(3,3,8);
-                    imagesc(tv_der);
-                    colorbar;
-                    axis square;
-                    title('tv der');
-
 %                     subplot(3,3,8);
-%                     imshow(display_im*0.5 + hm_mask*0.5);
-%                     title('mask overlay');
+%                     imagesc(tv_der);
+%                     colorbar;
+%                     axis square;
+%                     title('tv der');
+
+                    subplot(3,3,8);
+                    imshow(display_im*0.5 + hm_mask*0.5);
+                    title('mask overlay');
                     
                     subplot(3,3,9);
                     plot(transpose(E(1,1:t)));
@@ -316,9 +335,11 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     plot(repmat(orig_err, [1 t]));
                     hold off;
                     axis square;
-                    title(sprintf('log(lr) = %.2f, log(lambda) = %.2f', log10(opts.learning_rate), log10(opts.lambda)));
+                    title(sprintf('log(lr) = %.2f, log(lambda) = %.2f, log(tv_lambda) = %.2f, beta = %.2f', ...
+                        log10(opts.learning_rate), log10(opts.lambda), ...
+                        log10(opts.tv_lambda), opts.beta));
 
-                    %legend('Softmax Loss','Tot Loss','Orig SM Loss');
+                    legend('Loss','Loss + Reg','Orig Loss');
 
                     drawnow;
                 case 3
@@ -367,7 +388,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     hold off;
                     axis square;
                     title(sprintf('log(lr) = %.2f, log(lambda) = %.2f', log10(opts.learning_rate), log10(opts.lambda)));
-                    %legend('Softmax Loss','Tot Loss','Orig SM Loss');
+                    legend('Loss','Loss + Reg','Orig Loss');
 
                     hm_mask = map2jpg(im2double(imresize(mean(mask,3),img_size(1:2))));
 
@@ -380,10 +401,12 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 
                     subplot(3,3,7);
                     imshow(display_im*0.5 + large_heatmap_new*0.5);
-                    title(sprintf('CAM Opt (%.3f: %.8s)', best_opt_score, classes{best_opt_class_i}));
+                    title(sprintf('CAM Opt (%.3f: %s)', best_opt_score, ...
+                        get_short_class_name(net, best_opt_class_i, true)));
                     subplot(3,3,8);
                     imshow(display_im*0.5 + large_heatmap_orig*0.5);
-                    title(sprintf('CAM Orig (%.3f: %.8s)', sorted_orig_scores(1), classes{sorted_orig_class_idx(1)}));
+                    title(sprintf('CAM Orig (%.3f: %s)', sorted_orig_scores(1), ...
+                        get_short_class_name(net, sorted_orig_class_idx(1), true)));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
                     
@@ -413,17 +436,14 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %     end
 
     if ~strcmp(opts.save_fig_path, ''),
-        [folder, ~, ~] = fileparts(opts.save_fig_path);
-        if ~exist(folder, 'dir')
-            mkdir(folder);
-        end
+        prep_path(opts.save_fig_path);
         print(fig, opts.save_fig_path, '-djpeg');
     end
     
     new_res = struct();
     
 %     new_res.mask = mask_t;
-%     new_res.error = E;
+    new_res.error = E;
 %     new_res.optimized_feats = x;
 %     new_res.actual_feats = actual_feats;
 %     new_res.tnet = tnet;
@@ -433,8 +453,8 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %     new_res.opts = opts;
     new_res.mask = mask;
     new_res.actual_feats = actual_feats;
-%     new_res.layer = layer;
-%     new_res.opts = opts;
+    new_res.layer = layer;
+    new_res.opts = opts;
     
     if ~strcmp(opts.save_res_path, ''),
         [folder, ~, ~] = fileparts(opts.save_res_path);

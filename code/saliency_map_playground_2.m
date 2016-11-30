@@ -97,26 +97,25 @@ end
 %null_img = mean(imdb.images.data(:,:,:,batch_range),4);
 layer = 15;
 
-%img_idx = 1:1000;
-%img_idx = [32];
-img_idx = [58];
+img_idx = 32:1000;
 opts = struct();
 %opts.batch_range = batch_range;
 %opts.class_offset = class_offset;
 %opts.null_img = null_img;
-opts.num_iters = 500;
-opts.plot_step = 50;
+opts.num_iters = 100;
+opts.plot_step = 10;
 opts.debug = true;
 opts.save_fig_path = '';
 opts.save_res_path = '';
 opts.loss = 'softmaxloss';
+opts.denom_reg = false;
 
 for i=1:length(img_idx),
     curr_opts = opts;
     img_i = img_idx(i);
     img = cnn_normalize(net.meta.normalization, imread(imdb_paths.images.paths{img_i}), true);
     target_class = imdb_paths.images.labels(img_i) + class_offset;
-    for m=2:2,
+    for m=1:3,
         curr_opts.mask_dims = m;
 
         switch curr_opts.mask_dims
@@ -124,27 +123,29 @@ for i=1:length(img_idx),
                 curr_opts.learning_rate = 2e1;
                 curr_opts.lambda = 5e-4;
                 curr_opts.tv_lambda = 0;
+                curr_opts.beta = 0;
             case 2
                 curr_opts.learning_rate = 2e1;
                 curr_opts.lambda = 1e-3; %5e-5;
                 curr_opts.tv_lambda = 1e-3;
+                curr_opts.beta = 1;
             case 3
                 curr_opts.learning_rate = 2e1;
                 curr_opts.lambda = 1e-6;
                 curr_opts.tv_lambda = 0;
+                curr_opts.beta = 0;
         end
         
-%         curr_opts.save_fig_path = fullfile(sprintf('/home/ruthfong/neural_coding/figures5/%s/L%d/%s/reg_lambda_%f/', ...
-%          dataset, layer, curr_opts.loss, curr_opts.lambda), ...
-%          strcat(num2str(img_i), sprintf('_mask_dim_%d.jpg', curr_opts.mask_dims)));
-%         curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results5/%s/L%d/%s/reg_lambda_%f/', ...
-%          dataset, layer, curr_opts.loss, curr_opts.lambda), ...
-%          strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', curr_opts.mask_dims)));
-
-%      curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results4/places/L%d/%s/', layer, opts.loss), ...
-%          strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', opts.mask_dims)));
+        curr_opts.save_fig_path = fullfile(sprintf('/home/ruthfong/neural_coding/figures5/%s/L%d/%s/reg_lambda_%f_tv_norm_%f_beta_%f/', ...
+         dataset, layer, curr_opts.loss, curr_opts.lambda, curr_opts.tv_lambda, curr_opts.beta), ...
+         strcat(num2str(img_i), sprintf('_mask_dim_%d.jpg', curr_opts.mask_dims)));
+        curr_opts.save_res_path = fullfile(sprintf('/home/ruthfong/neural_coding/results5/%s/L%d/%s/reg_lambda_%f_tv_norm_%f_beta_%f/', ...
+         dataset, layer, curr_opts.loss, curr_opts.lambda, curr_opts.tv_lambda, curr_opts.beta), ...
+         strcat(num2str(img_i), sprintf('_mask_dim_%d.mat', curr_opts.mask_dims)));
 
         res_mask = optimize_layer_feats(net, img, target_class, layer, curr_opts);
+        
+        close all;
     end
 end
 

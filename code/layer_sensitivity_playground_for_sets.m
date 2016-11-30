@@ -23,9 +23,13 @@ end
 % 818: sports car, sports car, 445: tandem bicycle, 672: mountain bike,
 % 780: school bus, 655: minibus, 875: trolley bus, 467: bullet train, 
 % 896: warplane
-class_idx = [445, 467, 672, 780, 655, 875, 896, 818];
+%class_idx = [445, 467, 672, 780, 655, 875, 896, 818];
+class_idx = [467, 672, 780, 655, 875, 896, 818];
 
 layers = [2, 6, 10, 12, 14]; % relu 1-5 layers for alexnet
 for class_i=class_idx
+    fprintf('running color sensitivity experiment for %s\n', ...
+        get_short_class_name(net, class_i, false));
     run_color_sensitivity_experiment(net,imdb_paths,class_i, layers);
+    close all;
 end
