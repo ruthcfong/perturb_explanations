@@ -52,7 +52,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %             if strcmp(opts.loss, 'min_classlabel')
 %                 mask = ones([size_feats(1:2) 1], type);
 %             else
-                mask = rand([size_feats(1:2) 1],type);
+                mask = 0.5*ones([size_feats(1:2) 1],type);
 %             end
             mask_t = zeros([size_feats(1:2) opts.num_iters],type);
         case 3
@@ -167,12 +167,16 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             reg_der(mask > 1) = 1;
         else
             reg_der = sign(mask);
+            
+            % hinge regularization
+            % reg_der = reg_der .* (softmax_der >= 0);
         end
                 
         mask = mask - opts.learning_rate*(softmax_der + opts.lambda*(reg_der + denom_der)...
             +opts.tv_lambda*tv_der);
-        mask(mask > 1) = 1;
-        mask(mask < 0) = 0;
+        %mask(mask > 1) = 1;
+        %mask(mask < 0) = 0;
+%         mask = normalize(mask);
 
 %         if mod(t-1,10) == 0
 %             ex = rand(size(mask), type);
@@ -326,9 +330,15 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %                     axis square;
 %                     title('tv der');
 
+                     subplot(3,3,1);
+                     imshow(display_im*0.5 + hm_mask*0.5);
+                     title('mask overlay');
+                    
                     subplot(3,3,8);
-                    imshow(display_im*0.5 + hm_mask*0.5);
-                    title('mask overlay');
+                    imagesc(softmax_der);
+                    colorbar;
+                    axis square;
+                    title('loss deriv');
                     
                     subplot(3,3,9);
                     plot(transpose(E(1,1:t)));
