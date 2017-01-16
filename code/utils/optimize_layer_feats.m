@@ -12,12 +12,40 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     opts.mask_dims = 2;
     opts.loss = 'softmaxloss';
     opts.denom_reg = false;
+    opts.mask_init = 'rand';
+    opts.error_stopping_threshold = -100;%2.5e-3;
+    opts.num_class_labels = 0;
+    opts.num_masks = 1;
+    opts.premask = '';
+    opts.num_superpixels = 500;
+    
+    opts.adam.beta1 = 0.999;
+    opts.adam.beta2 = 0.999;
+    opts.adam.epsilon = 1e-8;
+
+    opts.mask_transform_function = 'linear';
+    opts.gen_sig_c = 0.5;
+    opts.gen_sig_a = 10;
     
     opts = vl_argparse(opts, varargin);
-    
+
     type = 'single';
     type_fh = @single;
-    
+
+    gen_sig_func = @(x) (1./(1+exp(-opts.gen_sig_a*(x-opts.gen_sig_c))));
+    d_gen_sig_func = @(x) (opts.gen_sig_a*gen_sig_func(x).*(1-gen_sig_func(x)));
+    linear_func = @(x) (x);
+    d_linear_func = @(x) (ones(size(x), type));
+
+    switch opts.mask_transform_function
+        case 'linear'
+            mask_transform = linear_func;
+            d_mask_transform = d_linear_func;
+        case 'generalized_sigmoid'
+            mask_transform = gen_sig_func;
+            d_mask_transform = d_gen_sig_func;
+    end
+        
     net = convert_net_value_type(net, type_fh);
     
     img_size = size(net.meta.normalization.averageImage);
@@ -43,31 +71,63 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     % get maximum feature map (similar to Fergus and Zeiler, 2014)
     [~, max_feature_idx] = max(sum(sum(res(layer+1).x,1),2));
 
-
+    switch opts.mask_init
+        case 'rand'
+            mask_init_func = @rand;
+        case 'ones'
+            mask_init_func = @ones;
+        case 'half'
+            mask_init_func = @(s, t) (0.5 * ones(s, t));
+    end
+    
     switch opts.mask_dims
         case 1
-            mask = rand([1 1 size_feats(3)], type);
+            mask = mask_init_func([1 1 size_feats(3)], type);
             mask_t = zeros([size_feats(3) opts.num_iters], type);
         case 2
-%             if strcmp(opts.loss, 'min_classlabel')
-%                 mask = ones([size_feats(1:2) 1], type);
-%             else
-                mask = 0.5*ones([size_feats(1:2) 1],type);
-%             end
+            switch opts.premask
+                case 'superpixels'
+                    [superpixel_labels, num_superpixels] = superpixels(img, opts.num_superpixels);
+                    premask = mask_init_func([1 num_superpixels],type);
+                    mask = zeros([size_feats(1:2) 1], type);
+                    for i=1:num_superpixels
+                        mask(superpixel_labels == i) = premask(superpixel);
+                    end
+                otherwise
+                    mask = mask_init_func([size_feats(1:2) opts.num_masks],type);
+            end
             mask_t = zeros([size_feats(1:2) opts.num_iters],type);
+        case 4
+            mask_feats = mask_init_func([1 1 size_feats(3)], type);
+            mask_spatial = 0.5*ones([size_feats(1:2) 1],type);
+            mask_feats_t = zeros([size_feats(3) opts.num_iters], type);
+            mask_spatial_t = zeros([size_feats(1:2) opts.num_iters],type);
         case 3
-            mask = rand(size_feats,type);
+            mask = mask_init_func(size_feats,type);
             mask_t = zeros([size_feats opts.num_iters],type);
         otherwise
             assert(false);
     end
     E = zeros([5 opts.num_iters]);
 
+    % for adam update
+    m_t = zeros(size(mask), type);
+    v_t = zeros(size(mask), type);
+
     tnet_cam = tnet;
     tnet_cam.layers = tnet_cam.layers(1:end-1); % exclude softmax loss layer
     gradient = zeros(size(res(end-1).x), type);
     gradient(target_class) = 1;
     res_orig_cam = vl_simplenn(tnet_cam, actual_feats, gradient);
+    
+    tnet_precam = tnet_cam;
+    tnet_precam.layers = tnet_cam.layers(1:end-1); % exclude softmax loss
+    
+    neg_gradient = zeros(size(res(end-1).x), type);
+
+    tnet_mseloss = tnet;
+    tnet_mseloss.layers{end} = struct('type', 'mseloss');
+    tnet_mseloss.layers{end}.class = res_orig_cam(end).x;
     
     cam_weights_orig = sum(sum(res_orig_cam(1).dzdx,1),2) / prod(size_feats(1:2));
     cam_map_orig = bsxfun(@max, sum(bsxfun(@times, res_orig_cam(1).x, cam_weights_orig),3), 0);
@@ -78,44 +138,89 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
     num_top_scores = 5;
     interested_scores = zeros([num_top_scores+1 opts.num_iters]);
+       
+    if opts.num_class_labels ~= 0
+        gradient = zeros(size(res(end-1).x), type);
+        neg_gradient = zeros(size(res(end-1).x), type);
+        gradient(sorted_orig_class_idx(1:opts.num_class_labels)) = 1; 
+        neg_gradient(sorted_orig_class_idx(1:opts.num_class_labels)) = -1;
+    end
     orig_denom = sum(exp(res(end-1).x));
     switch opts.loss
         case 'softmaxloss'
             orig_err = -log(exp(res(end-1).x(:,:,target_class))/(...
                 sum(exp(res(end-1).x))));
+        case 'max_softmaxloss'
+            orig_err = -log(exp(res(end-1).x(:,:,target_class))/(...
+                sum(exp(res(end-1).x))));
         case 'min_classlabel'
             orig_err = res_orig_cam(end).x(:,:,target_class);
-            %orig_err = mean((res_orig_cam(end).x - gradient).^2);
         case 'max_classlabel'
             orig_err = res_orig_cam(end).x(:,:,target_class);
-            neg_gradient = zeros(size(res(end-1).x), type);
             neg_gradient(target_class) = -1;
-
+        case 'min_preclasslabel'
+            orig_err = res_orig_cam(end-1).x(:,:,target_class);
+        case 'max_preclasslabel'
+            orig_err = res_orig_cam(end-1).x(:,:,target_class);
+            neg_gradient(target_class) = -1;
+        case 'preserve_class_vector'
+            orig_err = 0;
         otherwise
             assert(false);
     end
-        
+    
+    %null_feats = net.meta.normalization.averageImage;
+    
     fig = figure('units','normalized','outerposition',[0 0 1 1]); % open a maxed out figure
     for t=1:opts.num_iters,
         switch opts.mask_dims
             case 1
                 mask_t(:,t) = squeeze(mask);
-                x = bsxfun(@times, actual_feats, mask);
+                x = bsxfun(@times, actual_feats, mask_transform(mask));
             case 2
-                mask_t(:,:,t) = mask;
-                %x = actual_feats .* mask + null_feats .* (1 - mask);
-                x = bsxfun(@times, actual_feats, mask);
+                mask_t(:,:,t) = mean(mask,3);
+                x = bsxfun(@times, actual_feats, mask_transform(mean(mask,3))); %, gen_sig(mask, c, a));
+                %x = bsxfun(@times, actual_feats, mask) ...
+                %    + bsxfun(@times, null_feats, 1 - mask);
+            case 4
+                assert(false); % TODO implementation
+                mask_feats_t(:,t) = squeeze(mask);
+                mask_spatial_t(:,:,t) = mask;
+                x = bsxfun(@times, actual_feats, ...
+                    bsxfun(@times, mask_spatial, mask_feats));
             case 3
                 mask_t(:,:,:,t) = mask;
-                x = actual_feats .* mask;
+                x = actual_feats .* mask_transform(mask);
         end
         
-        E(2,t) = opts.lambda * sum(abs(mask(:)));
+        if opts.mask_dims == 4
+            E(2,t) = opts.lambda * (sum(abs(mask_feats(:)) ...
+                + sum(abs(mask_spatial(:)))));
+        else
+            if strcmp(opts.loss, 'min_classlabel') || strcmp(opts.loss, 'max_softmaxloss') ...
+                    || strcmp(opts.loss, 'min_preclasslabel')
+                E(2,t) = opts.lambda * sum(abs(mask(:)-1))/opts.num_masks;
+            else
+                E(2,t) = opts.lambda * sum(abs(mask(:)))/opts.num_masks;
+            end
+        end
         
         % use tv-norm for spatial mask only
         if opts.mask_dims == 2 && opts.tv_lambda ~= 0
             assert(opts.beta ~= 0);
-            [tv_err, tv_der] = tv(mask, opts.beta);
+            tv_err = 0;
+            tv_der = zeros(size(mask), type);
+            for i=1:opts.num_masks
+                [tv_err_m, tv_der_m] = tv(mask(:,:,i), opts.beta);
+                tv_err = tv_err+tv_err_m;
+                tv_der(:,:,i) = tv_der_m;
+            end
+            tv_err = tv_err/opts.num_masks;
+            tv_der = tv_der/opts.num_masks;
+            
+        elseif opts.mask_dims == 4 && opts.tv_lambda ~= 0
+            assert(opts.beta ~= 0);
+            [tv_err, tv_der] = tv(mask_spatial, opts.beta);
         else
             tv_err = 0;
             tv_der = zeros(size(mask), type);
@@ -127,13 +232,37 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             case 'softmaxloss'
                 tres = vl_simplenn(tnet, x, 1);
                 E(1,t) = tres(end).x;
+            case 'max_softmaxloss';
+                tres = vl_simplenn(tnet, x, -1);
+                E(1,t) = tres(end).x;
+                E(2,t) = opts.lambda * sum(abs(1-mask(:)));
             case 'min_classlabel'
                 tres = vl_simplenn(tnet_cam, x, gradient);
                 E(1,t) = tres(end).x(:,:,target_class);
-                E(2,t) = opts.lambda * sum(abs(1-mask(:)));
+                if opts.mask_dims == 4
+                    E(2,t) = opts.lambda * (sum(abs(1 - mask_feats(:)) ...
+                        + sum(abs(1 - mask_spatial(:)))));
+                else
+                    E(2,t) = opts.lambda * sum(abs(1-mask(:)));
+                end
             case 'max_classlabel'
                 tres = vl_simplenn(tnet_cam, x, neg_gradient);
                 E(1,t) = tres(end).x(:,:,target_class);
+            case 'min_preclasslabel'
+                tres = vl_simplenn(tnet_precam, x, gradient);
+                E(1,t) = tres(end).x(:,:,target_class);
+                if opts.mask_dims == 4
+                    E(2,t) = opts.lambda * (sum(abs(1 - mask_feats(:)) ...
+                        + sum(abs(1 - mask_spatial(:)))));
+                else
+                    E(2,t) = opts.lambda * sum(abs(1-mask(:)));
+                end
+            case 'max_preclasslabel'
+                tres = vl_simplenn(tnet_precam, x, neg_gradient);
+                E(1,t) = tres(end).x(:,:,target_class);
+            case 'preserve_class_vector'
+               tres = vl_simplenn(tnet_mseloss, x, 1);
+               E(1,t) = tres(end).x;
             otherwise
                 assert(false);
         end
@@ -149,33 +278,58 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 
         E(end,t) = sum(E(1:end-1,t));
                  
-        interested_scores(1:num_top_scores,t) = tres(end-1).x(sorted_orig_class_idx(1:num_top_scores));
-        interested_scores(end,t) = tres(end-1).x(target_class);
+        if ~isempty(strfind(opts.loss, 'softmax')) || ~isempty(strfind(opts.loss, 'preserve'))
+            interested_scores(1:num_top_scores,t) = tres(end-1).x(sorted_orig_class_idx(1:num_top_scores));
+            interested_scores(end,t) = tres(end-1).x(target_class);
+        else
+            interested_scores(1:num_top_scores,t) = tres(end).x(sorted_orig_class_idx(1:num_top_scores));
+            interested_scores(end,t) = tres(end).x(target_class);
+        end
         
         switch opts.mask_dims
             case 1
-                softmax_der = sum(sum(tres(1).dzdx.*actual_feats,1),2);
+                softmax_der = sum(sum(tres(1).dzdx.*actual_feats,1),2).*d_mask_transform(mask);
             case 2
-                softmax_der = sum(tres(1).dzdx.*actual_feats,3);
+                 softmax_der = bsxfun(@times, d_mask_transform(mask), sum(tres(1).dzdx.*actual_feats,3))/opts.num_masks; %.*d_gen_sig(mask, c, a);
+                %softmax_der = sum(tres(1).dzdx.*actual_feats-tres(1).dzdx.*null_feats,3);
+            case 4
+                %softmax_der = sum(
             case 3
-                softmax_der = tres(1).dzdx.*actual_feats;
+                softmax_der = tres(1).dzdx.*actual_feats.*d_mask_transform(mask);
         end
         
-        if strcmp(opts.loss, 'min_classlabel')
+        if strcmp(opts.loss, 'min_classlabel') || strcmp(opts.loss, 'max_softmaxloss') ....
+                || strcmp(opts.loss, 'min_preclasslabel')
             reg_der = zeros(size(mask), type);
             reg_der(mask < 1) = -1;
             reg_der(mask > 1) = 1;
+            reg_der = reg_der/opts.num_masks;
         else
-            reg_der = sign(mask);
+            reg_der = sign(mask)/opts.num_masks;
             
             % hinge regularization
             % reg_der = reg_der .* (softmax_der >= 0);
         end
-                
-        mask = mask - opts.learning_rate*(softmax_der + opts.lambda*(reg_der + denom_der)...
-            +opts.tv_lambda*tv_der);
-        %mask(mask > 1) = 1;
-        %mask(mask < 0) = 0;
+        
+        update_gradient = softmax_der + opts.lambda*reg_der + opts.tv_lambda*tv_der;
+
+        % adam update
+        if isfield(opts, 'adam')
+            m_t = opts.adam.beta1*m_t + (1-opts.adam.beta1)*update_gradient;
+            v_t = opts.adam.beta2*v_t + (1-opts.adam.beta2)*(update_gradient.^2);
+            m_hat = m_t/(1-opts.adam.beta1^t);
+            v_hat = v_t/(1-opts.adam.beta2^t);
+
+            mask = mask - opts.learning_rate./(sqrt(v_hat)+opts.adam.epsilon).*m_hat;
+        % vanilla gradient descent
+        else
+            mask = mask - opts.learning_rate*update_gradient;
+        end
+
+        % clip mask
+        mask(mask > 1) = 1;
+        mask(mask < 0) = 0;
+        
 %         mask = normalize(mask);
 
 %         if mod(t-1,10) == 0
@@ -189,9 +343,9 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %                 dzdx_emp, dzdx_comp, abs(1 - dzdx_emp/dzdx_comp)*100);
 %         end
 
-        % plotting
-        if t == opts.num_iters || (opts.debug && mod(t-1,opts.plot_step) == 0)
-            res_new_cam = vl_simplenn(tnet_cam, x, gradient);
+% plotting
+        if E(end,t) < opts.error_stopping_threshold || t == opts.num_iters ...
+                || (mod(t-1,opts.plot_step) == 0)
 
             switch opts.mask_dims
                 case 1
@@ -265,7 +419,11 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 
                     drawnow;
                 case 2
-                    subplot(3,3,1);
+                    subplot(3,4,1);
+                    imshow(normalize(img));
+                    title('Orig Img');
+                    
+                    subplot(3,4,2);
                     actual_max_feat_map = res(layer+1).x(:,:,max_feature_idx);
                     curr_saliency_map = get_saliency_map_from_difference_map(...
                         actual_max_feat_map - x(:,:,max_feature_idx), layer, rf_info, img_size);
@@ -273,15 +431,24 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Max Feat Saliency');
 
-                    subplot(3,3,2);
+                    subplot(3,4,3);
                     curr_saliency_map = get_saliency_map_from_difference_map(mean(res(layer+1).x ...
                         - x,3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
                     imshow(display_im.*curr_saliency_map_rep);
                     title('Diff Avg Feats Saliency');
 
-                    subplot(3,3,3);
-                    curr_saliency_map = get_saliency_map_from_difference_map(mask, layer, rf_info, img_size);
+%                     imshow(normalize(x));
+%                     title('Masked Img');
+                    
+                    subplot(3,4,7);
+                    hm_avg_diff_feats = map2jpg(im2double(imresize(...
+                        normalize(curr_saliency_map),img_size(1:2))));
+                    imshow(display_im*0.5 + hm_avg_diff_feats*0.5);
+                    title('Diff Avg Feats Saliency');
+
+                    subplot(3,4,4);
+                    curr_saliency_map = get_saliency_map_from_difference_map(mean(mask, 3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
                     imshow(display_im.*curr_saliency_map_rep);
                     title('Mask Saliency');
@@ -293,33 +460,37 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %                         mean(mean(res(layer+1).dzdx(:,:,:,opts.img_i),1),2)),3),0), img_size(1:2))), [], 'jet');
 %                     display_im = normalize(img+imdb.images.data_mean);
                     
-                    hm_mask = map2jpg(im2double(imresize(mask,img_size(1:2))));
+                    hm_mask = map2jpg(im2double(imresize(mean(mask, 3),img_size(1:2))));
 
                     res_new_cam = vl_simplenn(tnet_cam, x, gradient);
                     cam_weights_new = sum(sum(res_new_cam(1).dzdx,1),2) / prod(size_feats(1:2));
                     cam_map_new = bsxfun(@max, sum(bsxfun(@times, res_new_cam(1).x, cam_weights_new),3), 0);
                     large_heatmap_new = map2jpg(im2double(imresize(cam_map_new, img_size(1:2))));
                     
-                    [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
-
-                    subplot(3,3,4);
+                    if ~isempty(strfind(opts.loss, 'softmax')) || ~isempty(strfind(opts.loss, 'preserve'))
+                        [best_opt_score, best_opt_class_i] = max(tres(end-1).x);
+                    else
+                        [best_opt_score, best_opt_class_i] = max(tres(end).x);
+                    end
+                    
+                    subplot(3,4,5);
                     imshow(display_im*0.5 + large_heatmap_new*0.5);
                     title(sprintf('CAM Opt (%.3f: %s)', best_opt_score, ...
                         get_short_class_name(net, best_opt_class_i, true)));
-                    subplot(3,3,5);
+                    subplot(3,4,6);
                     imshow(display_im*0.5 + large_heatmap_orig*0.5);
                     title(sprintf('CAM Orig (%.3f: %s)', sorted_orig_scores(1), ...
                         get_short_class_name(net, sorted_orig_class_idx(1), true)));
                         [sorted_orig_scores, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
 
-                    subplot(3,3,6);
+                    subplot(3,4,8);
                     plot(transpose(interested_scores(:,1:t)));
                     axis square;
                     legend([get_short_class_name(net, [squeeze(sorted_orig_class_idx(1:num_top_scores)); target_class], true)]);
                     title(sprintf('top %d scores', num_top_scores));
                     
-                    subplot(3,3,7);
-                    imagesc(mask);
+                    subplot(3,4,10);
+                    imagesc(mean(mask, 3));
                     colorbar;
                     axis square;
                     title('spatial mask');
@@ -330,17 +501,17 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
 %                     axis square;
 %                     title('tv der');
 
-                     subplot(3,3,1);
+                     subplot(3,4,11);
                      imshow(display_im*0.5 + hm_mask*0.5);
                      title('mask overlay');
                     
-                    subplot(3,3,8);
-                    imagesc(softmax_der);
+                    subplot(3,4,9);
+                    imagesc(mean(softmax_der, 3));
                     colorbar;
                     axis square;
                     title('loss deriv');
                     
-                    subplot(3,3,9);
+                    subplot(3,4,12);
                     plot(transpose(E(1,1:t)));
                     hold on;
                     plot(transpose(E(end,1:t)));
@@ -433,6 +604,12 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                 t, orig_err, E(1,t), E(2,t), E(3,t), E(4,t), t, mean(softmax_der(:)), ...
                 mean(reg_der(:)), opts.lambda * mean(reg_der(:)), ...
                 mean(abs(tv_der(:))), opts.tv_lambda * mean(abs(tv_der(:))));
+            
+            
+        end
+        
+        if E(end,t) < opts.error_stopping_threshold
+                break;
         end
     end
     
@@ -454,7 +631,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     
     new_res = struct();
     
-%     new_res.mask = mask_t;
+%     new_res.mask_t = mask_t;
     new_res.error = E;
 %     new_res.optimized_feats = x;
 %     new_res.actual_feats = actual_feats;

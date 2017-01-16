@@ -1,6 +1,16 @@
 function [r_start,r_end, c_start, c_end] = get_patch_coordinates(...
     rf_info, layernum, img_size, r_in, c_in)
     assert(length(r_in) == length(c_in));
+    assert(layernum >= 0);
+    
+    if layernum == 0
+        r_start = r_in;
+        r_end = r_in;
+        c_start = c_in;
+        c_end = c_in;
+        return;
+    end
+    
     c_start = max(1,rf_info.stride(layernum)  * c_in + rf_info.offset(layernum) ...
         - (rf_info.size(layernum) - 1)/2);
     r_start = max(1,rf_info.stride(layernum) * r_in + rf_info.offset(layernum) ...
