@@ -12,11 +12,14 @@ img_path = imdb_paths.images.paths{img_i};
 target_class = imdb_paths.images.labels(img_i);
 
 img = imread(img_path);
+if ndims(img) == 2 % deal with b&w images
+    img = repmat(img, [1 1 3]);
+end
 img_ = cnn_normalize(net.meta.normalization, img, 1);
 
 opts = {};
 opts.num_iters = 100;
-opts.num_perturbs = 1;
+opts.num_perturbs = 10;
 opts.window_size = 9;
 opts.show_fig = false;
 
@@ -60,7 +63,8 @@ heatmap_lrp = compute_heatmap(net, img_, target_class, 'lrp_epsilon', norm_deg);
     img, target_class, heatmap_lrp, opts);
 
 % random baseline
-[aopc_rand, diff_scores_rand, pert_img_rand] = calculate_aopc_random(net, ...
+heatmap_random = rand(net.meta.normalization.imageSize(1:2), 'single');
+[aopc_rand, diff_scores_rand, pert_img_rand] = calculate_aopc(net, ...
     img_, target_class, opts);
 
 figure;

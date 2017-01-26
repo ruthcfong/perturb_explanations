@@ -108,12 +108,14 @@ layer = 0;
 %img_idx =1:100;
 %img_idx = [4,7];
 %img_idx = [1,2,5,8,3,6,7,20,57,12,14,18,21,27,37,41,61,70,76,91];
-img_idx = 1:500;
+%img_idx = 1:500;
+img_idx = find(imdb_paths.images.labels == 81);
+%img_idx = [1];
 opts = struct();
 %opts.batch_range = batch_range;
 %opts.class_offset = class_offset;
 %opts.null_img = null_img;
-opts.num_iters = 300;
+opts.num_iters = 350;
 opts.plot_step = 50;
 opts.debug = false;
 opts.save_fig_path = '';
@@ -132,7 +134,7 @@ opts.num_class_labels = 5;
 % opts.sim_layernums = [4];
 % opts.sim_layercoeffs = [1e-8];
 
-for i=1:length(img_idx),
+parfor i=1:length(img_idx),
     curr_opts = opts;
     img_i = img_idx(i);
     if is_local
@@ -173,7 +175,7 @@ for i=1:length(img_idx),
 %                 curr_opts.tv_lambda = 1e-3;
 %                 curr_opts.beta = 2;
 % L0 -min_classlabelsoftmax for top5/max_softmax
-                curr_opts.learning_rate = 1e2; %2e1;
+                curr_opts.learning_rate = 1e1;%1e2; %2e1;
                 curr_opts.lambda = 5e-7; %1e-3; %5e-5;
                 curr_opts.tv_lambda = 1e-3;
                 curr_opts.beta = 3;

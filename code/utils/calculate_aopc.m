@@ -31,6 +31,8 @@ function [aopc, diff_scores, x] = calculate_aopc(net, img, target_class, heatmap
     res = vl_simplenn(nnet, heatmap);
     region_scores = res(end).x;
     
+    %figure; imshow(normalize(bsxfun(@times, single(img), imresize(normalize(region_scores), net.meta.normalization.imageSize(1:2)))));
+
     perb_mask = zeros(size(heatmap), 'single');
     k = floor(opts.window_size-1)/2;
     
@@ -45,6 +47,7 @@ function [aopc, diff_scores, x] = calculate_aopc(net, img, target_class, heatmap
     i = 1;
     
     [~,sorted_idx] = sort(region_scores(:), 'descend'); 
+    
     while counter <= opts.num_iters && i <= numel(region_scores)
         [r,c] = ind2sub(size(region_scores), sorted_idx(i));
         i = i + 1;
@@ -58,11 +61,8 @@ function [aopc, diff_scores, x] = calculate_aopc(net, img, target_class, heatmap
 %         rand_perbs = min_pixel + (max_pixel-min_pixel)...
 %             *rand([opts.window_size,opts.window_size,3,opts.num_perturbs], 'single');
         rand_perbs = 255*rand([opts.window_size,opts.window_size,3,opts.num_perturbs], 'single');
-        try
-            x_(r:r+opts.window_size-1,c:c+opts.window_size-1,:,:) = rand_perbs;
-        catch
-            assert(false);
-        end
+        x_(r:r+opts.window_size-1,c:c+opts.window_size-1,:,:) = rand_perbs;
+        
 %         x_in = bsxfun(@minus, single(x_), single(net.meta.normalization.averageImage));
         res = vl_simplenn(tnet, cnn_normalize(net.meta.normalization, x_, 1));
         rand_scores = res(end).x(1,1,target_class,:);
@@ -72,9 +72,10 @@ function [aopc, diff_scores, x] = calculate_aopc(net, img, target_class, heatmap
         median_score = median(rand_scores);
         [~,median_i] = min(abs(rand_scores-median_score));
         x(r:r+opts.window_size-1,c:c+opts.window_size-1,:) = rand_perbs(:,:,:,median_i);
-        
+                
         perb_mask(r:r+opts.window_size-1,c:c+opts.window_size-1) = 1;
         counter = counter + 1;
+                
     end
     
     aopc = cumsum(diff_scores)./(1:opts.num_iters);

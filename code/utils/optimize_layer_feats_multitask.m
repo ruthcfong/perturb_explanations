@@ -13,7 +13,7 @@ function new_res = optimize_layer_feats_multitask(net, img, target_class, layer,
     opts.loss = 'min_max_classlabel';
     opts.denom_reg = false; % obsolete
     opts.mask_init = 'rand';
-    opts.error_stopping_threshold = 100;
+    opts.error_stopping_threshold = Inf;
     opts.num_average = 5;
     opts.sim_layernums = [];
     opts.sim_layercoeffs = [];
@@ -114,12 +114,24 @@ function new_res = optimize_layer_feats_multitask(net, img, target_class, layer,
     tnet_cam = tnet;
     tnet_cam.layers = tnet_cam.layers(1:end-1); % exclude softmax loss layer
     
+    % for before softmax layer
+    tnet_precam = tnet_cam;
+    tnet_precam.layers = tnet_precam.layers(1:end-1);
+    
     % prepare gradients for min and max class label tasks
-    min_gradient = zeros(size(res(end-1).x), type);
-    min_gradient(target_class) = 1;
-    max_gradient = zeros(size(res(end-1).x), type);
-    max_gradient(target_class) = -1;
-        
+    switch opts.loss
+        case 'min_max_classlabel'
+            min_gradient = zeros(size(res(end-1).x), type);
+            min_gradient(target_class) = 1;
+            max_gradient = zeros(size(res(end-1).x), type);
+            max_gradient(target_class) = -1;
+        case 'min_max_preclasslabel'
+            min_gradient = zeros(size(res(end-2).x), type);
+            min_gradient(target_class) = 1;
+            max_gradient = zeros(size(res(end-2).x), type);
+            max_gradient(target_class) = -1;
+    end
+             
     res_orig_cam = vl_simplenn(tnet_cam, actual_feats, min_gradient);
         
     cam_weights_orig = sum(sum(res_orig_cam(1).dzdx,1),2) / prod(size_feats(1:2));
@@ -143,8 +155,13 @@ function new_res = optimize_layer_feats_multitask(net, img, target_class, layer,
 
     % min_gradient(sorted_orig_class_idx(1:num_top_scores)) = 1; % testing
     % orig_denom = sum(exp(res(end-1).x));
-    assert(strcmp(opts.loss, 'min_max_classlabel'));
-    orig_err = res_orig_cam(end).x(:,:,target_class);
+    % assert(strcmp(opts.loss, 'min_max_classlabel'));
+    switch opts.loss
+        case 'min_max_classlabel'
+            orig_err = res_orig_cam(end).x(:,:,target_class);
+        case 'min_max_preclasslabel'
+            orig_err = res_orig_cam(end-1).x(:,:,target_class);
+    end
     
     % null_feats = net.meta.normalization.averageImage; % only for pixel
     % space
@@ -154,8 +171,13 @@ function new_res = optimize_layer_feats_multitask(net, img, target_class, layer,
     x_min = bsxfun(@times, actual_feats, mask_transform(1-mean(mask, 3)));
     x_max = bsxfun(@times, actual_feats, mask_transform(mean(mask, 3)));
 
-    tres_max = vl_simplenn(tnet_cam, x_max, max_gradient);
-
+    switch opts.loss
+        case 'min_max_classlabel'
+            tres_max = vl_simplenn(tnet_cam, x_max, max_gradient);
+        case 'min_max_preclasslabel'
+            tres_max = vl_simplenn(tnet_precam, x_max, max_gradient);
+    end
+    
     fig = figure('units','normalized','outerposition',[0 0 1 1]); % open a maxed out figure
     for t=1:opts.num_iters,
         sim_der = zeros(size(x_max), type);
@@ -196,7 +218,13 @@ function new_res = optimize_layer_feats_multitask(net, img, target_class, layer,
         E(5,t) = opts.tv_lambda* tv_err/opts.num_masks;
         
         % calculate output and errors for min and max problems
-        tres_min = vl_simplenn(tnet_cam, x_min, min_gradient);
+        switch opts.loss
+            case 'min_max_classlabel'
+                tres_min = vl_simplenn(tnet_cam, x_min, min_gradient);
+            case 'min_max_preclasslabel'
+                tres_min = vl_simplenn(tnet_precam, x_min, min_gradient);
+        end
+        
         E(1,t) = tres_min(end).x(:,:,target_class);
         % already calculated
         E(2,t) = tres_max(end).x(:,:,target_class);
@@ -253,7 +281,12 @@ function new_res = optimize_layer_feats_multitask(net, img, target_class, layer,
         x_min = bsxfun(@times, actual_feats, mask_transform(1-mean(mask,3)));
         x_max = bsxfun(@times, actual_feats, mask_transform(mean(mask,3)));
 
-        tres_max = vl_simplenn(tnet_cam, x_max, max_gradient);
+        switch opts.loss
+            case 'min_max_classlabel'
+                tres_max = vl_simplenn(tnet_cam, x_max, max_gradient);
+            case 'min_max_preclasslabel'
+                tres_max = vl_simplenn(tnet_precam, x_max, max_gradient);
+        end
 
         % early stopping check
         if t > 50 && E(2,t) - tres_max(end).x(:,:,target_class) ...

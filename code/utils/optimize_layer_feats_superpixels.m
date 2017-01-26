@@ -1,5 +1,5 @@
 function new_res = optimize_layer_feats_superpixels(net, img, target_class, layer, varargin)
-    %opts.null_img = zeros(size(imdb.images.data_mean));
+    opts.null_img = [];
     opts.num_iters = 500;
     opts.learning_rate = 0.95;
     opts.lambda = 1e-6; 
@@ -150,7 +150,12 @@ function new_res = optimize_layer_feats_superpixels(net, img, target_class, laye
     fig = figure('units','normalized','outerposition',[0 0 1 1]); % open a maxed out figure
     for t=1:opts.num_iters,
         mask_t(:,:,t) = mask;
-        x = bsxfun(@times, actual_feats, mask_transform(mask));
+        if isempty(opts.null_img)
+            x = bsxfun(@times, actual_feats, mask_transform(mask));
+        else
+            x = bsxfun(@times, actual_feats, mask_transform(mask)) ...
+                + bsxfun(@times, opts.null_img, mask_transform(1-mask));
+        end
         
         % L1 loss
         if strcmp(opts.loss, 'min_classlabel') || strcmp(opts.loss, 'max_softmaxloss')
@@ -201,7 +206,12 @@ function new_res = optimize_layer_feats_superpixels(net, img, target_class, laye
             interested_scores(end,t) = tres(end).x(target_class);
         end
         
-        softmax_der = bsxfun(@times, d_mask_transform(mask), sum(tres(1).dzdx.*actual_feats,3)); %.*d_gen_sig(mask, c, a);
+        if isempty(opts.null_img)
+            softmax_der = bsxfun(@times, d_mask_transform(mask), sum(tres(1).dzdx.*actual_feats,3));
+        else
+            softmax_der = bsxfun(@times, d_mask_transform(mask), sum(tres(1).dzdx.*actual_feats,3)) ...
+                - bsxfun(@times, d_mask_transform(1-mask), sum(tres(1).dzdx.*opts.null_img,3));
+        end
         premask_der = arrayfun(@(i) sum(softmax_der(superpixel_labels == i)), 1:num_superpixels);
         
         if strcmp(opts.loss, 'min_classlabel') || strcmp(opts.loss, 'max_softmaxloss')
@@ -273,7 +283,12 @@ function new_res = optimize_layer_feats_superpixels(net, img, target_class, laye
             subplot(3,4,4);
             curr_saliency_map = get_saliency_map_from_difference_map(mean(mask, 3), layer, rf_info, img_size);
             curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-            imshow(display_im.*curr_saliency_map_rep);
+            if isempty(opts.null_img)
+                imshow(display_im.*curr_saliency_map_rep);
+            else
+                imshow(display_im.*curr_saliency_map_rep + ...
+                    normalize(opts.null_img).*(1-curr_saliency_map_rep));
+            end
             title('Mask Saliency');
 
 %                     hm_new = map2jpg(im2double(imresize(bsxfun(@max,sum(...

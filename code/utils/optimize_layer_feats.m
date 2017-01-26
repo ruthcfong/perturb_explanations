@@ -1,5 +1,5 @@
 function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
-    %opts.null_img = zeros(size(imdb.images.data_mean));
+    opts.null_img = [];
     opts.num_iters = 500;
     opts.learning_rate = 0.95;
     opts.lambda = 1e-6;
@@ -13,7 +13,7 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
     opts.loss = 'softmaxloss';
     opts.denom_reg = false;
     opts.mask_init = 'rand';
-    opts.error_stopping_threshold = -100;%2.5e-3;
+    opts.error_stopping_threshold = -Inf;%2.5e-3;
     opts.num_class_labels = 0;
     opts.num_masks = 1;
     opts.premask = '';
@@ -179,7 +179,12 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                 x = bsxfun(@times, actual_feats, mask_transform(mask));
             case 2
                 mask_t(:,:,t) = mean(mask,3);
-                x = bsxfun(@times, actual_feats, mask_transform(mean(mask,3))); %, gen_sig(mask, c, a));
+                if isempty(opts.null_img)
+                    x = bsxfun(@times, actual_feats, mask_transform(mean(mask,3))); %, gen_sig(mask, c, a));
+                else
+                    x = bsxfun(@times, actual_feats, mask_transform(mean(mask,3))) ...
+                        + bsxfun(@times, opts.null_img, mask_transform(mean(1-mask,3)));
+                end
                 %x = bsxfun(@times, actual_feats, mask) ...
                 %    + bsxfun(@times, null_feats, 1 - mask);
             case 4
@@ -290,7 +295,14 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
             case 1
                 softmax_der = sum(sum(tres(1).dzdx.*actual_feats,1),2).*d_mask_transform(mask);
             case 2
-                 softmax_der = bsxfun(@times, d_mask_transform(mask), sum(tres(1).dzdx.*actual_feats,3))/opts.num_masks; %.*d_gen_sig(mask, c, a);
+                 if isempty(opts.null_img)
+                     softmax_der = bsxfun(@times, d_mask_transform(mask), sum(tres(1).dzdx.*actual_feats,3))/opts.num_masks; %.*d_gen_sig(mask, c, a);
+                 else
+                     softmax_der = bsxfun(@times, d_mask_transform(mask), ...
+                         sum(tres(1).dzdx.*actual_feats,3))/opts.num_masks ...
+                         - bsxfun(@times, d_mask_transform(mask), ...
+                         sum(tres(1).dzdx.*opts.null_img,3))/opts.num_masks; %.*d_gen_sig(mask, c, a);
+                 end
                 %softmax_der = sum(tres(1).dzdx.*actual_feats-tres(1).dzdx.*null_feats,3);
             case 4
                 %softmax_der = sum(
@@ -450,7 +462,12 @@ function new_res = optimize_layer_feats(net, img, target_class, layer, varargin)
                     subplot(3,4,4);
                     curr_saliency_map = get_saliency_map_from_difference_map(mean(mask, 3), layer, rf_info, img_size);
                     curr_saliency_map_rep = repmat(normalize(curr_saliency_map),[1 1 3]);
-                    imshow(display_im.*curr_saliency_map_rep);
+                    if isempty(opts.null_img)
+                        imshow(display_im.*curr_saliency_map_rep);
+                    else
+                        imshow(display_im.*curr_saliency_map_rep ...
+                            + normalize(opts.null_img).*(1-curr_saliency_map_rep));
+                    end
                     title('Mask Saliency');
 
 %                     hm_new = map2jpg(im2double(imresize(bsxfun(@max,sum(...
