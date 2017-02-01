@@ -1,5 +1,6 @@
-function heatmap = compute_heatmap(net, img, target_class, heatmap_type, norm_deg, varargin)
+function heatmap = compute_heatmap(net, imgs, target_classes, heatmap_type, norm_deg, varargin)
     opts.lrp_epsilon = 100;
+    opts.gpu = NaN;
 %     opts.lrp_alpha = 2;
 %     opts.lrp_beta = 1;
     opts = vl_argparse(opts, varargin);
@@ -65,10 +66,26 @@ function heatmap = compute_heatmap(net, img, target_class, heatmap_type, norm_de
             assert(false);
     end
     
-    res = vl_simplenn(net, img);
-    gradient = zeros(size(res(end).x), 'single');
-    gradient(target_class) = 1;
-    res = vl_simplenn(net, img, gradient);
+    if ndims(imgs) <= 3
+        res = vl_simplenn(net, imgs);
+        gradient = zeros(size(res(end).x), 'single');
+        gradient(target_classes) = 1;
+        res = vl_simplenn(net, imgs, gradient);
+    else
+        res = vl_simplenn(net, imgs(:,:,:,1));
+        gradient = zeros([size(res(end).x) size(imgs,4)], 'single');
+        if ~isnan(opts.gpu)
+            g = gpuDevice(opts.gpu+1);
+            net = vl_simplenn_move(net, 'gpu');
+            imgs = gpuArray(imgs);
+            gradient = gpuArray(gradient);
+            target_classes = gpuArray(target_classes);
+        end
+        for i=1:size(imgs,4)
+            gradient(1,1,target_classes(i),i) = 1;
+        end
+        res = vl_simplenn(net, imgs, gradient);
+    end
     
     if isinf(norm_deg)
         if norm_deg == inf
@@ -83,4 +100,6 @@ function heatmap = compute_heatmap(net, img, target_class, heatmap_type, norm_de
             heatmap = sum(abs(res(1).dzdx).^ norm_deg, 3).^(1/norm_deg);
         end
     end
+    
+    heatmap = gather(heatmap);
 end

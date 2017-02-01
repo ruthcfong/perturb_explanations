@@ -39,6 +39,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     opts.adam.epsilon = 1e-8;
     opts.nesterov.momentum = 0.9;
     
+    opts.gpu = NaN; % NaN for CPU
+    
     opts = vl_argparse(opts, varargin);
     
     switch opts.mask_params.type
@@ -79,16 +81,36 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     
     num_top_scores = 5;
     res = vl_simplenn(net, img);
-    [~, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+    %[~, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+    [~, sorted_orig_class_idx] = sort(res(end).x, 'descend');
     interested_scores = zeros([num_top_scores opts.num_iters]);
 
+    if ~isnan(opts.gpu)
+        g = gpuDevice(opts.gpu + 1);
+        
+        img = gpuArray(img);
+        net = vl_simplenn_move(net, 'gpu');
+        opts.null_img = gpuArray(opts.null_img);
+        params = gpuArray(params);
+        E = gpuArray(E);
+        m_t = gpuArray(m_t);
+        v_t = gpuArray(v_t);
+        interested_scores = gpuArray(interested_scores);
+        gradient = gpuArray(gradient);
+        
+        switch opts.mask_params.type
+            case 'superpixels'
+                param_opts.superpixel_labels = gpuArray(param_opts.superpixel_labels);
+        end
+    end
+    
     fig = figure('units','normalized','outerposition',[0 0 1 1]); % open a maxed out figure
     for t=1:opts.num_iters
         % inject noise (optionally)
         if opts.noise.use
-            noise = opts.noise.mean + opts.noise.std*randn(size(params), 'single');
+            noise = opts.noise.mean + opts.noise.std*randn(size(params), 'like', params);
         else
-            noise = zeros(size(params), 'single');
+            noise = 0;
         end
         
         % create mask (m) and modified input
@@ -103,7 +125,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         res = vl_simplenn(net, img_, gradient);
         
         % save top scores
-        interested_scores(:,t) = res(end-1).x(sorted_orig_class_idx(1:num_top_scores));
+        %interested_scores(:,t) = res(end-1).x(sorted_orig_class_idx(1:num_top_scores));
+        interested_scores(:,t) = res(end).x(sorted_orig_class_idx(1:num_top_scores));
         
         % compute algo error
         err_ind = res(end).x .* gradient;
@@ -122,7 +145,7 @@ function new_res = optimize_mask(net, img, gradient, varargin)
             dl1dp = get_params_deriv(dl1m, params, param_opts);
         else
             E(2,t) = 0;
-            dl1dp = zeros(size(params), 'single');
+            dl1dp = 0;
         end
 
         % TV regularization
@@ -133,7 +156,7 @@ function new_res = optimize_mask(net, img, gradient, varargin)
             dTVdp = get_params_deriv(dTVdm, params, param_opts);
         else
             E(3,t) = 0;
-            dTVdp = zeros(size(params), 'single');
+            dTVdp = 0;
         end
         update_gradient = dzdp + opts.lambda*dl1dp + opts.tv_lambda*dTVdp;
         
@@ -162,33 +185,33 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         % plot progress
         if mod(t, opts.plot_step) == 0
             subplot(3,3,1);
-            imshow(uint8(cnn_denormalize(net.meta.normalization, img)));
+            imshow(uint8(cnn_denormalize(net.meta.normalization, gather(img))));
             title('Orig Img');
             
             subplot(3,3,2);
-            imshow(uint8(cnn_denormalize(net.meta.normalization, img_wo_noise)));
+            imshow(uint8(cnn_denormalize(net.meta.normalization, gather(img_wo_noise))));
             title('Masked Img');
             
             subplot(3,3,3);
-            plot(E([1 end],1:t)');
+            plot(gather(E([1 end],1:t)'));
             axis square;
             legend({'loss','loss+reg'});
             title('Error');
             
             subplot(3,3,4);
-            imagesc(mask_wo_noise);
+            imagesc(gather(mask_wo_noise));
             axis square;
             colorbar;
             title('Mask');
             
             subplot(3,3,5);
-            imagesc(dzdm);
+            imagesc(gather(dzdm));
             axis square;
             colorbar;
             title('dzdm');
             
             subplot(3,3,6);
-            plot(transpose(interested_scores(:,1:t)));
+            plot(gather(transpose(interested_scores(:,1:t))));
             axis square;
             legend([get_short_class_name(net, [squeeze(sorted_orig_class_idx(1:num_top_scores))], true)]);
             title(sprintf('top %d scores', num_top_scores));
@@ -198,8 +221,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
             fprintf(strcat('loss at epoch %d: f(x) = %f, l1 = %f, TV = %f\n', ...
                 'mean deriv at epoch %d: dzdp = %f, l1 = %f, tv = %f\n'), ...
                 t, E(1,t), E(2,t), E(3,t), ...
-                t, sum(dzdp(:)), opts.lambda*sum(dl1dp(:)), ...
-                opts.tv_lambda*sum(abs(dTVdp(:))));
+                t, mean(abs(dzdp(:))), opts.lambda*mean(dl1dp(:)), ...
+                opts.tv_lambda*mean(abs(dTVdp(:))));
         end
     end
     
@@ -211,13 +234,13 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     
     new_res = struct();
     
-    new_res.error = E;
-    new_res.mask = mask;
-    new_res.params = params;
-    new_res.param_opts = param_opts;
-    new_res.opts = opts;
-    new_res.gradient = gradient;
-    new_res.num_layers = length(net.layers);
+    %new_res.error = gather(E);
+    new_res.mask = gather(mask);
+    %new_res.params = params;
+    %new_res.param_opts = param_opts;
+    %new_res.opts = opts;
+    %new_res.gradient = gradient;
+    %new_res.num_layers = length(net.layers);
     
     if ~strcmp(opts.save_res_path, ''),
         [folder, ~, ~] = fileparts(opts.save_res_path);
@@ -226,9 +249,9 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         end
 
         save(opts.save_res_path, 'new_res');
+        fprintf('saved to %s\n', opts.save_res_path);
     end
 end
-
 
 function [params, opts] = init_square_occlusion_params(img, varargin)
     opts.img_size = size(img);
@@ -286,7 +309,7 @@ function [params, opts] = init_superpixels_params(img, varargin)
     
     opts = vl_argparse(opts, varargin);
     
-    [superpixel_labels, opts.num_superpixels] = superpixels(img, opts.num_superpixels);
+    [superpixel_labels, opts.num_superpixels] = superpixels(double(img), opts.num_superpixels);
 
     params = rand([1 opts.num_superpixels], 'single');
     opts.superpixel_labels = superpixel_labels;
@@ -347,7 +370,7 @@ function mask = get_mask_from_square_occlusion_params(params, opts)
 end
 
 function mask = get_mask_from_superpixels_params(params, opts)
-    mask = zeros(opts.img_size(1:2), 'single');
+    mask = zeros(opts.img_size(1:2), 'like', params);
     
     for i=1:opts.num_superpixels
         mask(opts.superpixel_labels == i) = params(i);
@@ -432,10 +455,13 @@ function dzdp = dzdp_square_occlusion(dzdm, params, opts)
 %     dzdp = [dzdx_center dzdy_center];
 end
 
-function dzdp = dzdp_superpixels(dzdm, ~, opts)
-    dzdp = arrayfun(@(i) sum(dzdm(opts.superpixel_labels == i)), 1:opts.num_superpixels);
+function dzdp = dzdp_superpixels(dzdm, params, opts)
+    dzdp = zeros(size(params), 'like', params);
+    for i=1:opts.num_superpixels
+        dzdp(i) = sum(dzdm(opts.superpixel_labels == i));
+    end
+%       dzdp = arrayfun(@(i) sum(dzdm(opts.superpixel_labels == i)), 1:opts.num_superpixels);
 end
-
 
 function params = clip_square_occlusion_params(params, opts)
     translation_idx = [5, 6];
@@ -473,7 +499,7 @@ function [e, dx] = tv(x,beta)
       d11(:,1,:,:) = - d1_(:,1,:,:) ;
       d22(1,:,:,:) = - d2_(1,:,:,:) ;
       dx = beta*(d11 + d22);
-      if(any(isnan(dx)))
-      end
+%       if(any(isnan(dx)))
+%       end
     end
 end

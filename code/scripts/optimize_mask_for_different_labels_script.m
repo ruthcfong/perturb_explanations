@@ -5,7 +5,7 @@ opts = struct();
 opts.l1_ideal = 1;
 
 opts.learning_rate = 1e1;
-opts.num_iters = 500;
+opts.num_iters = 500;cc
 opts.adam.beta1 = 0.999;
 opts.adam.beta2 = 0.999;
 opts.adam.epsilon = 1e-8;
