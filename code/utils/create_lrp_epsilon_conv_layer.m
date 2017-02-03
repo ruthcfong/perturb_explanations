@@ -43,9 +43,9 @@ function res = lrp_epsilon_backward(l, res, res_)
                 X(l.pad+1:l.pad+h_in,l.pad+1:l.pad+w_in, :) = res.x;
                 relevance = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'single');
             case 4
-                X = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(1:2)), size_in(3:end)], 'single');
+                X = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'single');
                 X(l.pad(1)+1:l.pad(1)+h_in,l.pad(3)+1:l.pad(3)+w_in, :) = res.x;
-                relevance = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(1:2)), size_in(3:end)], 'single');
+                relevance = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'single');
             otherwise
                 assert(false);
         end
