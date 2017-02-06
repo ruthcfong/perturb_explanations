@@ -28,6 +28,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     opts.mask_params.type = 'direct';
     opts.direct.opts = struct();
     
+    opts.jitter = 0;
+    
     opts.noise.use = false;
     opts.noise.mean = 0;
     opts.noise.std = 1;
@@ -65,12 +67,22 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         otherwise
             assert(false);
     end
-        
+    
+    imgSize = net.meta.normalization.imageSize;
+    imgH = imgSize(1);
+    imgW = imgSize(2);
+    if opts.jitter > 0
+        imgSize(1) = imgSize(1) + opts.jitter;
+        imgSize(2) = imgSize(2) + opts.jitter;
+    end
+    normalization = struct('imageSize', imgSize);
+    img = cnn_normalize(normalization, img, true);
+    
     % initialize mask parameters
     [params, param_opts] = init_params(img, param_opts);
     
     if isempty(opts.null_img)
-        opts.null_img = zeros(net.meta.normalization.imageSize(1:3), 'single');
+        opts.null_img = zeros(imgSize, 'single');
     end
     
     E = zeros([4 opts.num_iters], 'single'); % loss, L1, TV, sum
@@ -113,13 +125,22 @@ function new_res = optimize_mask(net, img, gradient, varargin)
             noise = 0;
         end
         
-        % create mask (m) and modified input
+        % create mask (m) and modified input        
         mask = get_mask(params + noise, param_opts);
-        img_ = bsxfun(@times, img, mask) + bsxfun(@times, opts.null_img, 1-mask);
+        
+        % add jitter
+        h_jitter = ceil(rand()*opts.jitter)+1:imgH;
+        w_jitter = ceil(rand()*opts.jitter)+1:imgW;
+
+        img_ = bsxfun(@times, img(h_jitter,w_jitter,:), mask(h_jitter,w_jitter)) ...
+            + bsxfun(@times, opts.null_img(h_jitter,w_jitter,:), ...
+            1-mask(h_jitter,w_jitter));
         
         mask_wo_noise = get_mask(params, param_opts);
-        img_wo_noise = bsxfun(@times, img, mask_wo_noise) ...
-            + bsxfun(@times, opts.null_img, 1-mask_wo_noise);
+        img_wo_noise = bsxfun(@times, img(h_jitter,w_jitter,:), ...
+            mask_wo_noise(h_jitter,w_jitter)) ...
+            + bsxfun(@times, opts.null_img(h_jitter,w_jitter,:), ...
+            1-mask_wo_noise(h_jitter,w_jitter));
         
         % run black-box algorithm on modified input
         res = vl_simplenn(net, img_, gradient);
@@ -133,7 +154,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         E(1,t) = sum(err_ind(:));
 
         % compute algo derivatives w.r.t. mask parameters
-        dzdx_ = res(1).dzdx;
+        dzdx_ = zeros(size(img), 'like', p);
+        dzdx_(h_jitter,w_jitter,:) = res(1).dzdx;
         dzdm = sum(dzdx_.*(img-opts.null_img), 3);
         dzdp = get_params_deriv(dzdm, params, param_opts);
         

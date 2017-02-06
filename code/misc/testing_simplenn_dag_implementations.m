@@ -80,6 +80,14 @@ title('simple - dag der');
 %     end
 % end
 
+sums = zeros([1 length(res_simple)], 'single');
+for i=1:length(res_simple)
+    sums(i) = sum(res_simple(i).dzdx(:));
+end
+
+diff = [sums(2:end) - sums(1:end-1)];
+max(diff)
+
 assert(isequal(heatmap_deconvnet_simple, heatmap_deconvnet_dag));
 assert(isequal(heatmap_sal_simple, heatmap_sal_dag));
 assert(isequal(heatmap_guided_simple, heatmap_guided_dag));
