@@ -1,9 +1,10 @@
 function localization_with_heatmaps(net, imdb_paths, all_img_idx, alpha, heatmap_type, out_file, varargin)
-
 opts.meta = load('/data/ruthfong/ILSVRC2012/ILSVRC2014_devkit/data/meta_clsloc.mat');
 opts.batch_size = 200;
 opts.gpu = NaN;
 opts.norm_deg = Inf;
+opts.mask_dir = {};
+opts.mask_flip = false;
 
 opts = vl_argparse(opts, varargin);
 %out_file = '/data/ruthfong/ILSVRC2012/saliency_loc_predictions_alpha_5_v4.txt';
@@ -12,6 +13,18 @@ heatmap_opts.gpu = opts.gpu;
 
 wnid_to_im_id = cellfun(@(net_out) find(cellfun(@(s) ~isempty(strfind(s, net_out)), ...
     {opts.meta.synsets.WNID})), net.meta.classes.name);
+
+isDag = isfield(net, 'params') || isprop(net, 'params');
+
+if ~isnan(opts.gpu)
+    g = gpuDevice(opts.gpu+1);
+    if isDag
+        net = dagnn.DagNN.loadobj(net);
+        net.move('gpu');
+    else
+        net = vl_simplenn_move(net, 'gpu');
+    end
+end
 
 for j=1:ceil(length(all_img_idx)/opts.batch_size)
     if j*opts.batch_size <= length(all_img_idx)
@@ -28,61 +41,67 @@ for j=1:ceil(length(all_img_idx)/opts.batch_size)
             imread(imdb_paths.images.paths{img_idx(i)}), 1);
     end
 
-    res = vl_simplenn(net, imgs);
-    [~,max_idx] = max(res(end).x, [], 3);
+    
+    if isDag
+        order = net.getLayerEvaluationOrder();
+        if ~isnan(opts.gpu)
+            imgs = gpuArray(imgs);
+        end
+        
+        inputs = {net.vars(net.layers(order(1)).inputIndexes).name, imgs};
+        net.eval(inputs);
+        [~,max_idx] = max(net.vars(net.layers(order(end)).outputIndexes).value, [], 3);
+        warning('localization_with_heatmaps.m has not been tested yet for DagNNs');
+    else
+        if ~isnan(opts.gpu)
+            imgs = gpuArray(imgs);
+        end
+        res = vl_simplenn(net, imgs);
+        [~,max_idx] = max(res(end).x, [], 3);
+    end
     max_idx = wnid_to_im_id(squeeze(max_idx));
 
-    heatmaps = compute_heatmap(net, imgs, target_classes, heatmap_type, opts.norm_deg, heatmap_opts);
-
+    switch heatmap_type
+        case 'mask'
+            heatmaps = zeros([net.meta.normalization.imageSize(1:2) length(img_idx)], 'single');
+            for i=1:length(img_idx);
+                mask_res = load(fullfile(opts.mask_dir, [num2str(img_idx(i)) '.mat']));
+                mask = mask_res.new_res.mask;
+                if opts.mask_flip, mask = 1-mask; end
+                heatmaps(:,:,i) = mask;
+            end
+        otherwise
+            if ~isnan(opts.gpu)
+                if isDag
+                    net.move('cpu');
+                else
+                    net = vl_simplenn_move(net, 'cpu');
+                end
+                imgs = gather(imgs);
+            end
+            heatmaps = compute_heatmap(net, imgs, target_classes, heatmap_type, opts.norm_deg, heatmap_opts);
+            if ~isnan(opts.gpu)
+                if isDag
+                else
+                    net = vl_simplenn_move(net, 'gpu');
+                end
+            end
+    end
+    
     bb_coords = zeros([4 length(img_idx)], 'single');
 
     for i=1:length(img_idx)
         img_size = size(imread(imdb_paths.images.paths{img_idx(i)}));
-        bb_coords(:,i) = getbb_from_heatmap(heatmaps(:,:,:,i), img_size(1:2), alpha);
+        bb_coords(:,i) = getbb_from_heatmap(heatmaps(:,:,i), img_size(1:2), alpha);
     end
 
+    prep_path(out_file);
     fprintf('writing to %s\n', out_file);
     fid = fopen(out_file, 'a');
     fprintf(fid, '%d %d %d %d %d\n', [max_idx; bb_coords]);
     fclose(fid);
     fprintf('finished writing\n');
 end
-
-
-% [~,filename,~] = fileparts(imdb_paths.images.paths{1});
-% 
-% bb_path = fullfile(bb_dir, strcat(filename, '.xml')); 
-% rec = VOCreadxml(bb_path);
-% bb = rec.annotation.object.bndbox;
-% bb_disp = [str2double(bb.xmin)+1, str2double(bb.ymin)+1, str2double(bb.xmax)-str2double(bb.xmin), ...
-%     str2double(bb.ymax)-str2double(bb.ymin)];
-% 
-% figure;
-% subplot(3,4,1);
-% imshow(normalize(imgs(:,:,:,1)));
-% subplot(3,4,2);
-% imshow(normalize(heatmaps_sal(:,:,:,1)));
-% subplot(3,4,3);
-% imshow(normalize(heatmaps_deconv(:,:,:,1)));
-% subplot(3,4,4);
-% imshow(normalize(heatmaps_guided(:,:,:,1)));
-% subplot(3,4,5);
-% imshow(imread(imdb_paths.images.paths{1}));
-% hold on;
-% rectangle('Position', bb_disp, 'EdgeColor', 'r');
-% hold off;
-% subplot(3,4,6);
-% [x1,x2,y1,y2] = getbb_from_heatmap(heatmaps_sal(:,:,:,1), sal_alpha);
-% imshow(normalize(imgs(:,:,:,1)));
-% hold on;
-% rectangle('Position', [x1 y1 (x2-x1) (y2-y1)], 'EdgeColor', 'r');
-% hold off;
-% subplot(3,4,7);
-% [x1,x2,y1,y2] = getbb_from_heatmap(heatmaps_deconv(:,:,:,1), deconvnet_alpha);
-% imshow(normalize(imgs(:,:,:,1)));
-% hold on;
-% rectangle('Position', [x1 y1 (x2-x1) (y2-y1)], 'EdgeColor', 'r');
-% hold off;
 
 end
 

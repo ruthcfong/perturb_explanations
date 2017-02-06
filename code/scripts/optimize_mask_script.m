@@ -1,7 +1,9 @@
 net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-caffe-alex.mat');
 %net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-vgg-verydeep-16.mat');
 imdb_paths = load('/data/ruthfong/ILSVRC2012/val_imdb_paths.mat');
-
+%imdb_paths = load('/data/ruthfong/ILSVRC2012/annotated_train_imdb_paths.mat');
+%img_idx = load('/data/ruthfong/ILSVRC2012/annotated_train_heldout_idx.mat');
+%img_idx = img_idx.heldout_idx;
 %img_idx = [1,2,5,8,3,6,7,20,57,12,14,18,21,27,37,41,61,70,76,91];
 %img_idx = [3];
 img_idx = 1:50000;
@@ -21,9 +23,11 @@ opts.adam.beta1 = 0.999;
 opts.adam.beta2 = 0.999;
 opts.adam.epsilon = 1e-8;
 
-% opts.lambda = 2.5e-8; %1e-10;
-% opts.tv_lambda = 2.5e-6; %1e-8; 
-% opts.beta = 1.5; % 1.2;
+opts.adam.beta1 = 0.9;
+opts.learning_rate = 1e0;
+opts.lambda = 5e-8; %2.5e-8; %1e-10;
+opts.tv_lambda = 5e-6; %2.5e-6; %1e-8; 
+opts.beta = 1.5; % 1.2;
 
 opts.noise.use = true;
 opts.noise.mean = 0;
@@ -57,9 +61,9 @@ opts.gpu = 1;
 
 %delete(gcp('nocreate'));
 %parpool('local', 6);
-parfor i=1:length(img_idx)
-%parfor i=25001:39999
-%parfor i=40000:50000
+%parfor i=1:5000
+parfor i=25001:50000
+%parfor i=1:25000
 %for i=length(img_idx):-1:1
 %for i=1:length(img_idx)
     curr_opts = opts;
@@ -83,7 +87,7 @@ parfor i=1:length(img_idx)
 %      curr_opts.mask_params.type, curr_opts.learning_rate, log10(curr_opts.lambda), log10(curr_opts.tv_lambda), ...
 %      curr_opts.beta, curr_opts.num_iters, curr_opts.noise.use, curr_opts.update_func), num2str(img_i));
     curr_opts.save_res_path = sprintf(strcat('/data/ruthfong/neural_coding/results10/', ...
-        'imagenet/alexnet/L0/min_classlabel_5_%s_blur/lr_%f_reg_lambda_%f_tv_norm_%f_beta_%f_num_iters_%d_noise_%d_%s/', ...
+        'imagenet/alexnet_val/L0/min_classlabel_5_%s_blur/lr_%f_reg_lambda_%f_tv_norm_%f_beta_%f_num_iters_%d_noise_%d_%s/', ...
         '%d.mat'), ...
      curr_opts.mask_params.type, curr_opts.learning_rate, log10(curr_opts.lambda), log10(curr_opts.tv_lambda), ...
      curr_opts.beta, curr_opts.num_iters, curr_opts.noise.use, curr_opts.update_func, img_i);
