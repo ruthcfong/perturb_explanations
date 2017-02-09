@@ -21,7 +21,7 @@ end
 
 %% search imagenet images
 % how to search for a class
-present_idx = find(cellfun(@(s) ~isempty(strfind(s, 'snake')), net.meta.classes.description));
+present_idx = find(cellfun(@(s) ~isempty(strfind(s, 'tabby')), net.meta.classes.description));
 class_i = present_idx(3); 
 % 818: sports car, sports car, 445: tandem bicycle, 672: mountain bike,
 % 780: school bus, 655: minibus, 875: trolley bus, 467: bullet train, 

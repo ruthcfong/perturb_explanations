@@ -1,12 +1,18 @@
-net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-caffe-alex.mat');
-%net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-vgg-verydeep-16.mat');
-imdb_paths = load('/data/ruthfong/ILSVRC2012/val_imdb_paths.mat');
-%imdb_paths = load('/data/ruthfong/ILSVRC2012/annotated_train_imdb_paths.mat');
-%img_idx = load('/data/ruthfong/ILSVRC2012/annotated_train_heldout_idx.mat');
-%img_idx = img_idx.heldout_idx;
+net_type = 'vgg16';
+switch net_type
+    case 'alexnet'
+        net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-caffe-alex.mat');
+    case 'vgg16'
+        net = load('/home/ruthfong/packages/matconvnet/data/models/imagenet-vgg-verydeep-16.mat');
+    otherwise
+        assert(false);
+end
+%imdb_paths = load('/data/ruthfong/ILSVRC2012/val_imdb_paths.mat');
+imdb_paths = load('/data/ruthfong/ILSVRC2012/annotated_train_imdb_paths.mat');
+img_idx = load('/data/ruthfong/ILSVRC2012/annotated_train_heldout_idx.mat');
+img_idx = img_idx.heldout_idx;
 %img_idx = [1,2,5,8,3,6,7,20,57,12,14,18,21,27,37,41,61,70,76,91];
-%img_idx = [3];
-img_idx = 1:50000;
+%img_idx = 1:50000;
 
 opts = struct();
 opts.l1_ideal = 1;
@@ -32,6 +38,7 @@ opts.beta = 1.5; % 1.2;
 opts.noise.use = true;
 opts.noise.mean = 0;
 opts.noise.std = 1e-3;
+opts.jitter = 0;
 opts.mask_params.type = 'direct';
 opts.update_func = 'adam';
 
@@ -62,17 +69,18 @@ opts.gpu = 1;
 %delete(gcp('nocreate'));
 %parpool('local', 6);
 %parfor i=1:5000
-parfor i=25001:50000
+%parfor i=25001:50000
 %parfor i=1:25000
 %for i=length(img_idx):-1:1
-%for i=1:length(img_idx)
+for i=1:length(img_idx)
     curr_opts = opts;
     img_i = img_idx(i);
-    img = cnn_normalize(net.meta.normalization, ...
-        imread(imdb_paths.images.paths{img_i}), true);
+    %img = cnn_normalize(net.meta.normalization, ...
+    %    imread(imdb_paths.images.paths{img_i}), true);
+    img = imread(imdb_paths.images.paths{img_i});
     
     target_class = imdb_paths.images.labels(img_i);
-    res = vl_simplenn(net, img);
+    res = vl_simplenn(net, cnn_normalize(net.meta.normalization, img, true));
     %gradient = 1;
     gradient = zeros(size(res(end).x), 'single');
     %gradient(target_class) = 1;
@@ -82,15 +90,15 @@ parfor i=25001:50000
     curr_opts.null_img = imgaussfilt(img, 10);
     
 %     curr_opts.save_fig_path = fullfile(sprintf(strcat('/data/ruthfong/neural_coding/figures10/', ...
-%         'imagenet/alexnet/L0/min_classlabel_5_%s_blur/lr_%f_reg_lambda_%f_tv_norm_%f_beta_%f_num_iters_%d_noise_%d_%s/', ...
+%         'imagenet/%s_annotated_train_heldout/L0/min_classlabel_5_%s_blur/lr_%f_reg_lambda_%f_tv_norm_%f_beta_%f_num_iters_%d_noise_%d_jitter_%d_%s/', ...
 %         '%d_mask_dim_2.jpg'), ...
-%      curr_opts.mask_params.type, curr_opts.learning_rate, log10(curr_opts.lambda), log10(curr_opts.tv_lambda), ...
-%      curr_opts.beta, curr_opts.num_iters, curr_opts.noise.use, curr_opts.update_func), num2str(img_i));
+%      net_type, curr_opts.mask_params.type, curr_opts.learning_rate, log10(curr_opts.lambda), log10(curr_opts.tv_lambda), ...
+%      curr_opts.beta, curr_opts.num_iters, curr_opts.noise.use, curr_opts.jitter, curr_opts.update_func), num2str(img_i));
     curr_opts.save_res_path = sprintf(strcat('/data/ruthfong/neural_coding/results10/', ...
-        'imagenet/alexnet_val/L0/min_classlabel_5_%s_blur/lr_%f_reg_lambda_%f_tv_norm_%f_beta_%f_num_iters_%d_noise_%d_%s/', ...
+        'imagenet/%s_annotated_train_heldout/L0/min_classlabel_5_%s_blur/lr_%f_reg_lambda_%f_tv_norm_%f_beta_%f_num_iters_%d_noise_%d_jitter_%d_%s/', ...
         '%d.mat'), ...
-     curr_opts.mask_params.type, curr_opts.learning_rate, log10(curr_opts.lambda), log10(curr_opts.tv_lambda), ...
-     curr_opts.beta, curr_opts.num_iters, curr_opts.noise.use, curr_opts.update_func, img_i);
+     net_type, curr_opts.mask_params.type, curr_opts.learning_rate, log10(curr_opts.lambda), log10(curr_opts.tv_lambda), ...
+     curr_opts.beta, curr_opts.num_iters, curr_opts.noise.use, curr_opts.jitter, curr_opts.update_func, img_i);
  
     if exist(curr_opts.save_res_path, 'file')
         fprintf('%s already exists; so skipping\n', curr_opts.save_res_path);

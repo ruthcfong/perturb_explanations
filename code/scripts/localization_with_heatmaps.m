@@ -5,11 +5,13 @@ opts.gpu = NaN;
 opts.norm_deg = Inf;
 opts.mask_dir = {};
 opts.mask_flip = false;
+opts.layer_name = '';
 
 opts = vl_argparse(opts, varargin);
 %out_file = '/data/ruthfong/ILSVRC2012/saliency_loc_predictions_alpha_5_v4.txt';
 heatmap_opts = struct();
 heatmap_opts.gpu = opts.gpu;
+heatmap_opts.layer_name = opts.layer_name;
 
 wnid_to_im_id = cellfun(@(net_out) find(cellfun(@(s) ~isempty(strfind(s, net_out)), ...
     {opts.meta.synsets.WNID})), net.meta.classes.name);
@@ -43,7 +45,7 @@ for j=1:ceil(length(all_img_idx)/opts.batch_size)
 
     
     if isDag
-        order = net.getLayerEvaluationOrder();
+        order = net.getLayerExecutionOrder();
         if ~isnan(opts.gpu)
             imgs = gpuArray(imgs);
         end
@@ -82,6 +84,7 @@ for j=1:ceil(length(all_img_idx)/opts.batch_size)
             heatmaps = compute_heatmap(net, imgs, target_classes, heatmap_type, opts.norm_deg, heatmap_opts);
             if ~isnan(opts.gpu)
                 if isDag
+                    net.move('gpu');
                 else
                     net = vl_simplenn_move(net, 'gpu');
                 end
@@ -105,7 +108,7 @@ end
 
 end
 
-function res = getbb_from_heatmap(heatmap, resize, alpha)
+function [res, heatmap] = getbb_from_heatmap(heatmap, resize, alpha)
     heatmap = imresize(heatmap, resize);
     threshold = alpha*mean(heatmap(:));
     heatmap(heatmap < threshold) = 0;

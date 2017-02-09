@@ -68,6 +68,12 @@ function new_res = optimize_mask(net, img, gradient, varargin)
             assert(false);
     end
     
+    num_top_scores = 5;
+    res = vl_simplenn(net, cnn_normalize(net.meta.normalization, img, 1));
+    %[~, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
+    [~, sorted_orig_class_idx] = sort(res(end).x, 'descend');
+    interested_scores = zeros([num_top_scores opts.num_iters]);
+
     imgSize = net.meta.normalization.imageSize;
     imgH = imgSize(1);
     imgW = imgSize(2);
@@ -75,7 +81,7 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         imgSize(1) = imgSize(1) + opts.jitter;
         imgSize(2) = imgSize(2) + opts.jitter;
     end
-    normalization = struct('imageSize', imgSize);
+    normalization = struct('imageSize', imgSize, 'averageImage', net.meta.normalization.averageImage);
     img = cnn_normalize(normalization, img, true);
     
     % initialize mask parameters
@@ -83,6 +89,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     
     if isempty(opts.null_img)
         opts.null_img = zeros(imgSize, 'single');
+    else
+        opts.null_img = cnn_normalize(normalization, opts.null_img, true);
     end
     
     E = zeros([4 opts.num_iters], 'single'); % loss, L1, TV, sum
@@ -91,12 +99,6 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     m_t = zeros(size(params), 'single');
     v_t = zeros(size(params), 'single');
     
-    num_top_scores = 5;
-    res = vl_simplenn(net, img);
-    %[~, sorted_orig_class_idx] = sort(res(end-1).x, 'descend');
-    [~, sorted_orig_class_idx] = sort(res(end).x, 'descend');
-    interested_scores = zeros([num_top_scores opts.num_iters]);
-
     if ~isnan(opts.gpu)
         g = gpuDevice(opts.gpu + 1);
         
@@ -129,13 +131,14 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         mask = get_mask(params + noise, param_opts);
         
         % add jitter
-        h_jitter = ceil(rand()*opts.jitter)+1:imgH;
-        w_jitter = ceil(rand()*opts.jitter)+1:imgW;
-
+        h_jitter = ceil(rand()*opts.jitter)+(1:imgH);
+        w_jitter = ceil(rand()*opts.jitter)+(1:imgW);
+        %fprintf('h_jitter: %d, w_jitter: %d\n', h_jitter(1), w_jitter(2));
+        
         img_ = bsxfun(@times, img(h_jitter,w_jitter,:), mask(h_jitter,w_jitter)) ...
             + bsxfun(@times, opts.null_img(h_jitter,w_jitter,:), ...
             1-mask(h_jitter,w_jitter));
-        
+                
         mask_wo_noise = get_mask(params, param_opts);
         img_wo_noise = bsxfun(@times, img(h_jitter,w_jitter,:), ...
             mask_wo_noise(h_jitter,w_jitter)) ...
@@ -154,7 +157,7 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         E(1,t) = sum(err_ind(:));
 
         % compute algo derivatives w.r.t. mask parameters
-        dzdx_ = zeros(size(img), 'like', p);
+        dzdx_ = zeros(size(img), 'like', img);
         dzdx_(h_jitter,w_jitter,:) = res(1).dzdx;
         dzdm = sum(dzdx_.*(img-opts.null_img), 3);
         dzdp = get_params_deriv(dzdm, params, param_opts);
@@ -162,7 +165,10 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         % compute error and derivatives for regularization
         % L1 regularization
         if opts.lambda ~= 0
-            E(2,t) = opts.lambda * sum(abs(mask(:)-opts.l1_ideal));
+%             dl1m = zeros(normalization.imageSize(1:2), 'like', img);
+%             E(2,t) = opts.lambda * sum(sum(abs(mask(h_jitter,w_jitter)-opts.l1_ideal)));
+%             dl1m(h_jitter,w_jitter) = sign(mask(h_jitter,w_jitter)-opts.l1_ideal);
+            E(2,t) = opts.lambda * sum(sum(abs(mask-opts.l1_ideal)));
             dl1m = sign(mask-opts.l1_ideal);
             dl1dp = get_params_deriv(dl1m, params, param_opts);
         else
@@ -173,6 +179,8 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         % TV regularization
         if opts.tv_lambda ~= 0
             assert(opts.beta ~= 0);
+%             dTVdm = zeros(normalization.imageSize(1:2), 'like', img);
+%             [tv_err, dTVdm(h_jitter,w_jitter)] = tv(mask(h_jitter,w_jitter), opts.beta);
             [tv_err, dTVdm] = tv(mask, opts.beta);
             E(3,t) = opts.tv_lambda*tv_err;
             dTVdp = get_params_deriv(dTVdm, params, param_opts);
@@ -207,7 +215,7 @@ function new_res = optimize_mask(net, img, gradient, varargin)
         % plot progress
         if mod(t, opts.plot_step) == 0
             subplot(3,3,1);
-            imshow(uint8(cnn_denormalize(net.meta.normalization, gather(img))));
+            imshow(uint8(cnn_denormalize(normalization, gather(img))));
             title('Orig Img');
             
             subplot(3,3,2);
@@ -257,7 +265,14 @@ function new_res = optimize_mask(net, img, gradient, varargin)
     new_res = struct();
     
     %new_res.error = gather(E);
-    new_res.mask = gather(mask);
+    if opts.jitter > 0
+        new_res.mask = gather(mask((ceil(opts.jitter/2)+1):(ceil(opts.jitter/2)+net.meta.normalization.imageSize(1)), ...
+            (ceil(opts.jitter/2)+1):(ceil(opts.jitter/2)+net.meta.normalization.imageSize(2))));
+    else
+        new_res.mask = gather(mask);
+    end
+    assert(isequal(size(new_res.mask),net.meta.normalization.imageSize(1:2)));
+    
     %new_res.params = params;
     %new_res.param_opts = param_opts;
     %new_res.opts = opts;

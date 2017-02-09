@@ -1,5 +1,7 @@
 function [heatmap, res] = compute_heatmap(net, imgs, target_classes, heatmap_type, norm_deg, varargin)
     opts.lrp_epsilon = 100;
+    opts.lrp_alpha = 1;
+    opts.layer_name = '';
     opts.gpu = NaN;
     opts = vl_argparse(opts, varargin);
     
@@ -21,7 +23,7 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
         net.removeLayer(net.layers(softmax_i).name);
     end
     net.mode = 'test';
-    net.vars(1).precious = 1; % save data value & derivs
+    %net.vars(1).precious = 1; % save data value & derivs
     %net.conserveMemory = 0;
     
     % modify network based on heatmap technique
@@ -116,6 +118,17 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
     %net = dagnn.DagNN.loadobj(net);
     
     order = net.getLayerExecutionOrder();
+    
+    if ~isempty(opts.layer_name)
+        layer_i = find(cellfun(@(x) strcmp(x, opts.layer_name), {net.layers.name}));
+        assert(length(layer_i) == 1);
+        assert(length(net.layers(layer_i).outputIndexes) == 1);
+        net.vars(net.layers(layer_i).outputIndexes).precious = 1;
+    else
+        net.vars(net.layers(order(1)).inputIndexes).precious = 1;
+        layer_i = order(1);
+    end
+    
     input_var_i = net.layers(order(1)).inputIndexes;
     output_var_i = net.layers(order(end)).outputIndexes;
     if ndims(imgs) <= 3
@@ -145,18 +158,21 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
         net.eval(inputs, derOutputs);
     end
     
-    first_der = net.vars(net.layers(order(1)).inputIndexes).der;
+    volume = net.vars(net.layers(layer_i).outputIndexes).der;
+
     if isinf(norm_deg)
         if norm_deg == inf
-            heatmap = max(abs(first_der),[],3);
+            heatmap = max(abs(volume),[],3);
         else
-            heatmap = min(abs(first_der),[],3);
+            heatmap = min(abs(volume),[],3);
         end
     else
         if norm_deg == 0
-            heatmap = first_der;
+            heatmap = volume;
+        elseif norm_deg == -1
+            heatmap = sum(volume, 3);
         else
-            heatmap = sum(abs(first_der).^ norm_deg, 3).^(1/norm_deg);
+            heatmap = sum(abs(volume).^ norm_deg, 3).^(1/norm_deg);
         end
     end
     
@@ -215,7 +231,20 @@ function [heatmap, res] = compute_heatmap_simplenn(net, imgs, target_classes, he
                 end
             end
         case 'lrp_alpha_beta'
-            assert(false);
+            for i=1:length(net.layers)
+                switch net.layers{i}.type
+                    case 'conv'
+                        net.layers{i} = create_lrp_alpha_beta_conv_layer(...
+                            net.layers{i}, opts.lrp_alpha);
+                    case 'normalize'
+                        net.layers{i}.type = 'normalize_nobackprop';
+                    case 'lrn'
+                        net.layers{i}.type = 'lrn_nobackprop';
+
+                    otherwise
+                        continue;
+                end
+            end
         otherwise
             assert(false);
     end
@@ -241,17 +270,27 @@ function [heatmap, res] = compute_heatmap_simplenn(net, imgs, target_classes, he
         res = vl_simplenn(net, imgs, gradient);
     end
     
+    if ~isempty(opts.layer_name)
+        layer_i = find(cellfun(@(x) strcmp(x.name, opts.layer_name), net.layers));
+        assert(length(layer_i) == 1);
+        volume = res(layer_i+1).dzdx;
+    else
+        volume = res(1).dzdx;
+    end
+
     if isinf(norm_deg)
-        if norm_deg == inf
-            heatmap = max(abs(res(1).dzdx),[],3);
+        if norm_deg == Inf
+            heatmap = max(abs(volume),[],3);
         else
-            heatmap = min(abs(res(1).dzdx),[],3);
+            heatmap = min(abs(volume),[],3);
         end
     else
         if norm_deg == 0
-            heatmap = res(1).dzdx;
+            heatmap = volume;
+        elseif norm_deg == -1
+            heatmap = sum(volume, 3);
         else
-            heatmap = sum(abs(res(1).dzdx).^ norm_deg, 3).^(1/norm_deg);
+            heatmap = sum(abs(volume).^ norm_deg, 3).^(1/norm_deg);
         end
     end
     
