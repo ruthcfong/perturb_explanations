@@ -110,7 +110,37 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
                         continue;
                 end
             end
-        otherwise % TODO: implement lrp_alpha_beta
+        case 'lrp_alpha_beta'
+            interested_idx = cellfun(@(x) isa(x, 'dagnn.Conv') || isa(x,'dagnn.LRN') ...
+                , {net.layers.block});
+            interested_names = {net.layers(interested_idx).name};
+            for i=1:length(interested_names)
+                l = net.getLayer(interested_names{i});
+                switch class(l.block)
+                    case 'dagnn.Conv'
+                        conv_block = Conv_LRP_alpha_beta('alpha', opts.lrp_alpha, ...
+                            'size', l.block.size, ...
+                            'hasBias', l.block.hasBias, ...
+                            'opts', l.block.opts, ...
+                            'pad', l.block.pad, ...
+                            'stride', l.block.stride, ...
+                            'dilate', l.block.dilate);
+                        params = net.params(l.paramIndexes);
+                        net.removeLayer(l.name);
+                        net.addLayer(l.name, conv_block, l.inputs, ...
+                            l.outputs, l.params);
+                        net.params(net.getLayer(l.name).paramIndexes) = params;
+                    case 'dagnn.LRN'
+                        lrn_block = LRN_custom('custom_type', 'nobackprop', ...
+                            'param', l.block.param);
+                        net.removeLayer(interested_names{i});
+                        net.addLayer(l.name, lrn_block, l.inputs, ...
+                            l.outputs, l.params);
+                    otherwise
+                        continue;
+                end
+            end
+        otherwise
             error('Heatmap type %s is not implemented', heatmap_type);
     end
     
@@ -123,10 +153,11 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
         layer_i = find(cellfun(@(x) strcmp(x, opts.layer_name), {net.layers.name}));
         assert(length(layer_i) == 1);
         assert(length(net.layers(layer_i).outputIndexes) == 1);
-        net.vars(net.layers(layer_i).outputIndexes).precious = 1;
+        var_i = net.layers(layer_i).outputIndexes;
+        net.vars(var_i).precious = 1;
     else
-        net.vars(net.layers(order(1)).inputIndexes).precious = 1;
-        layer_i = order(1);
+        var_i = net.layers(order(1)).inputIndexes;
+        net.vars(var_i).precious = 1;
     end
     
     input_var_i = net.layers(order(1)).inputIndexes;
@@ -158,7 +189,7 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
         net.eval(inputs, derOutputs);
     end
     
-    volume = net.vars(net.layers(layer_i).outputIndexes).der;
+    volume = net.vars(var_i).der;
 
     if isinf(norm_deg)
         if norm_deg == inf
