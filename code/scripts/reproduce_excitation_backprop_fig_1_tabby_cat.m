@@ -8,10 +8,11 @@ disp(get_short_class_name(net, target_class, 0));
 opts = struct();
 opts.lrp_epsilon = 100;
 opts.lrp_alpha = 1;
+opts.gpu = 0;
 norm_deg = Inf;
 
-[heatmap, res] = compute_heatmap(net_dag, img, target_class, 'lrp_alpha_beta', norm_deg, opts);
-%[heatmap, res] = compute_heatmap(net, repmat(img, [1 1 1 2]), [target_class target_class], 'lrp_epsilon', norm_deg, opts);
+%[heatmap, res] = compute_heatmap(net, img, target_class, 'lrp_epsilon', norm_deg, opts);
+[heatmap, res] = compute_heatmap(net_dag, repmat(img, [1 1 1 2]), [target_class target_class], 'lrp_alpha_beta', norm_deg, opts);
 
 layer_names = {'pool5', 'pool4', 'pool3', 'pool2', 'pool1'};
 layer_idx = zeros(size(layer_names));

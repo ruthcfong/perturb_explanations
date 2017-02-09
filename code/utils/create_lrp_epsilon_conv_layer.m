@@ -39,28 +39,28 @@ function res = lrp_epsilon_backward(l, res, res_)
         pad_dims = length(l.pad);
         switch pad_dims
             case 1
-                X = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'single');
+                X = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'like', res.x);
                 X(l.pad+1:l.pad+h_in,l.pad+1:l.pad+w_in, :, :) = res.x;
-                relevance = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'single');
+                relevance = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'like', res.x);
             case 4
-                X = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'single');
+                X = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'like', res.x);
                 X(l.pad(1)+1:l.pad(1)+h_in,l.pad(3)+1:l.pad(3)+w_in, :, :) = res.x;
-                relevance = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'single');
+                relevance = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'like', res.x);
             otherwise
                 assert(false);
         end
         
     else
         X = res.x;
-        relevance = zeros(size(res.x), 'single');
-    end
+        relevance = zeros(size(X), 'like', X);
+    end 
     next_relevance = res_.dzdx;
 
     for h=1:h_out
         for w=1:w_out
             x = X((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:); % [hf, wf, df, N]
             x = permute(repmat(x, [1 1 1 1 nf]), [1 2 3 5 4]); % [hf, wf, d_in, nf, N]
-            Z = double(bsxfun(@times, x, W)); % [hf, wf, df, nf, N]
+            Z = bsxfun(@times, x, W); % [hf, wf, df, nf, N]
 
             Zs = sum(sum(sum(Z,1),2),3); % [1 1 1 nf N] (convolution summing here)
             %Zs = Zs + reshape(b, size(Zs));
@@ -86,10 +86,6 @@ function res = lrp_epsilon_backward(l, res, res_)
                 assert(false);
         end
     end
-    res.dzdx = single(relevance);
-    try
-        assert(isequal(size(res.dzdx),size(res.x)));
-    catch
-        assert(false);
-    end
+    res.dzdx = relevance;
+    assert(isequal(size(res.dzdx),size(res.x)));
 end

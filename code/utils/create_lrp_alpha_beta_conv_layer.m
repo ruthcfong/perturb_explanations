@@ -41,50 +41,29 @@ function res = lrp_alpha_beta_backward(l, res, res_)
         pad_dims = length(l.pad);
         switch pad_dims
             case 1
-                X = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'single');
+                X = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'like', res.x);
                 X(l.pad+1:l.pad+h_in,l.pad+1:l.pad+w_in, :, :) = res.x;
-                relevance = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'single');
+                relevance = zeros([h_in + 2*l.pad, w_in + 2*l.pad, size_in(3:end)], 'like', res.x);
             case 4
-                X = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'single');
+                X = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'like', res.x);
                 X(l.pad(1)+1:l.pad(1)+h_in,l.pad(3)+1:l.pad(3)+w_in, :, :) = res.x;
-                relevance = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'single');
+                relevance = zeros([h_in + sum(l.pad(1:2)), w_in + sum(l.pad(3:4)), size_in(3:end)], 'like', res.x);
             otherwise
                 assert(false);
         end
         
     else
-        X = double(res.x);
-        %relevance = zeros(size(res.x), 'single');
-        relevance = zeros(size(res.x), 'double');
+        X = res.x;
+        relevance = zeros(size(X), 'like', X);
     end
     next_relevance = res_.dzdx;
-    %W(:,:,end+1,:) = b;
 
     for h=1:h_out
         for w=1:w_out
             x = X((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:); % [hf, wf, df, N]
             x = permute(repmat(x, [1 1 1 1 nf]), [1 2 3 5 4]); % [hf, wf, d_in, nf, N]
-            %x(:,:,end+1,:) = ones(size(b),'like',x);
-            %rr = repmat(reshape(R(:,i,j,:),[N 1 1 1 Nf]),[1 hf wf df 1]); % N x hf x wf x df x Nf
-            %rr = repmat(reshape(next_relevance(h,w,:), [1 1 1 nf]), [hf, wf, df+1, 1]);
-            try
-                rr = repmat(reshape(next_relevance(h,w,:,:), [1 1 1 nf N]), [hf, wf, df, 1, 1]); % [hf, wf, df, nf, N]
-            catch
-                assert(false);
-            end
-            %Z = double(W .* x); % [hf, wf, df, nf]
-            Z = double(bsxfun(@times, x, W)); % [nh, wf, df, nf N]
-%             Zs = sum(sum(sum(Z,1),2),3); % [1 1 1 nf] (convolution summing here)
-%             Zs = Zs + reshape(b, size(Zs));
-%             Zs = Zs + l.epsilon*sign(Zs);
-%             Zs = repmat(Zs, [hf, wf, df, 1]);
-% 
-%             zz = Z ./ Zs;
-
-%             rr = repmat(reshape(next_relevance(h,w,:), [1 1 1 nf]), [hf, wf, df, 1]); % [hf, wf, df, nf]
-%             rx = relevance((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:);
-%             relevance((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:) = ...
-%                 rx + sum(zz .* rr, 4);
+            rr = repmat(reshape(next_relevance(h,w,:,:), [1 1 1 nf N]), [hf, wf, df, 1, 1]); % [hf, wf, df, nf, N]
+            Z = bsxfun(@times, x, W); % [nh, wf, df, nf N]
             
             if ~(alpha == 0)
                 Zp = Z .* (Z > 0);
@@ -92,8 +71,6 @@ function res = lrp_alpha_beta_backward(l, res, res_)
 
                 Zsp = sum(sum(sum(Zp,1),2),3);
                 %Zsp = Zsp + reshape(Brp, size(Zsp)) ; % 1 x 1 x 1 x nf
-                %Zsp = repmat(reshape(Zsp,[1 1 1 nf]),[hf wf df+1 1]); %  hf x wf x df x nf
-                %Zsp = repmat(reshape(Zsp,[1 1 1 nf]),[hf wf df 1]); %  hf x wf x df x nf
                 Zsp = repmat(reshape(Zsp,[1 1 1 nf N]),[hf wf df 1 1]); %  [hf x wf x df x nf x N]
 
                 Ralpha = reshape(alpha .* sum(Zp ./ Zsp .* rr,4), [hf wf df N]);
@@ -107,7 +84,6 @@ function res = lrp_alpha_beta_backward(l, res, res_)
 
                 Zsn = sum(sum(sum(Zn,1),2),3);
                 %Zsn = Zsn + reshape(Brn, size(Zsn)) ; % N x Nf
-                %Zsn = repmat(reshape(Zsn,[1 1 1 nf]),[hf wf df 1]); % N x hf x wf x df x Nf
                 Zsn = repmat(reshape(Zsn,[1 1 1 nf N]),[hf wf df 1 1]); % [hf x wf x df x Nf x N]
 
                 Rbeta = reshape(beta .* sum(Zn ./ Zsn .* rr,4), [hf wf df N]);
@@ -118,8 +94,6 @@ function res = lrp_alpha_beta_backward(l, res, res_)
             rx = relevance((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:);
             relevance((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:) = ...
                 rx + Ralpha + Rbeta;
-            %rx = Rx(:,(i-1)*hstride+1:(i-1)*hstride+hf,(j-1)*wstride+1:(j-1)*wstride+wf,:); % N x hf x wf x df
-            %Rx(:,(i-1)*hstride+1:(i-1)*hstride+hf,(j-1)*wstride+1:(j-1)*wstride+wf,:) = rx + Ralpha + Rbeta;
         end
     end
     
@@ -133,10 +107,7 @@ function res = lrp_alpha_beta_backward(l, res, res_)
                 assert(false);
         end
     end
-    res.dzdx = single(relevance);
-    try
-        assert(isequal(size(res.dzdx),size(res.x)));
-    catch
-        assert(false);
-    end
+    
+    res.dzdx = relevance;
+    assert(isequal(size(res.dzdx),size(res.x)));
 end
