@@ -15,6 +15,56 @@ function res_ = lrp_alpha_beta_forward(l, res, res_)
         l.opts{:});
 end
 
+function res = lrp_alpha_beta_backward_quick(l, res, res_)
+    alpha = l.alpha;
+    beta = 1 - alpha;
+    W = l.weights{1};
+    Z = vl_nnconv(res.x, W, [], ...
+        'pad', l.pad, ...
+        'stride', l.stride, ...
+        'dilate', l.dilate, ...
+        l.opts{:});
+    [R,~,~] = vl_nnconv(res.x, W, [], res_.dzdx, ...
+            'pad', l.pad, ...
+            'stride', l.stride, ...
+            'dilate', l.dilate, ...
+            l.opts{:});
+
+    if ~(alpha == 0)
+        Zp = Z .* (Z > 0);
+        Yp = 1 ./ Zp;
+        if ~isempty(find(isnan(Yp),1))
+            warning('Some NaNs in Yp at layer %s', l.name);
+            Yp(isnan(Yp)) = 0;
+        end
+        [Np,~,~] = vl_nnconv(res.x, W, [], Yp, ...
+            'pad', l.pad, ...
+            'stride', l.stride, ...
+            'dilate', l.dilate, ...
+            l.opts{:});
+    else
+        Zp = 0;
+    end
+    
+    if ~(beta == 0)
+        Zn = Z .* (Z < 0);
+        Yn = res_.dzdx ./ Zn;
+        if ~isempty(find(isnan(Yn),1))
+            warning('Some NaNs in Yn at layer %s', l.name);
+            Yn(isnan(Yn)) = 0;
+        end
+        [Rn,~,~] = vl_nnconv(res.x, W, [], Yn, ...
+            'pad', l.pad, ...
+            'stride', l.stride, ...
+            'dilate', l.dilate, ...
+            l.opts{:});
+    else
+        Zn = 0;
+    end
+    
+    res.dzdx = R .* (alpha*Zp.*res.x);
+end
+
 function res = lrp_alpha_beta_backward(l, res, res_)
     alpha = l.alpha;
     beta = 1 - l.alpha;
