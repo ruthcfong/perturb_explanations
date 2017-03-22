@@ -1,4 +1,3 @@
 models/*.mat
 *.m~
-
-
+code/caffe/python/.ipynb_checkpoints
