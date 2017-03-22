@@ -13,21 +13,16 @@ from helpers import *
 def visualize_heatmaps(net, img_path, mask_path, label, ann_path = None, show_titles = True, show_bbs = True, mask_alpha = 1.5, bb_method = 'mean', mask_flip = True, thres_first = True, fig_path = None, gpu = None,
                        synsets = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'),
                        indexing = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/ascii_order_to_synset_order.txt')):
-    #pylab.rcParams['figure.figsize'] = (10.0, 10.0)
     pylab.rcParams['figure.figsize'] = (10.0, 4.0)
-    #f, ax = plt.subplots(1,6)
     f, ax = plt.subplots(1,5)
     
     results = {}
     
     ax[0].imshow(caffe.io.load_image(img_path))
-    #ax[0].set_title('orig img + gt')
     if show_titles:
         ax[0].set_title('orig img + gt bb')
-        #ax[0].set_title(get_short_class_name(label))
     ax[0].set_ylabel(get_short_class_name(label))
     ax[0].get_xaxis().set_visible(False)
-    #ax[0].get_yaxis().set_visible(False)
     ax[0].get_yaxis().set_ticks([])
     if ann_path != None:
         objs = load_objs(ann_path)
@@ -37,7 +32,6 @@ def visualize_heatmaps(net, img_path, mask_path, label, ann_path = None, show_ti
                 bb_coords = objs[k][i]
                 rect = patches.Rectangle((bb_coords[0],bb_coords[1]),bb_coords[2]-bb_coords[0],bb_coords[3]-bb_coords[1],
                              linewidth=1,edgecolor='r',facecolor='none')
-                #if show_bbs:
                 ax[0].add_patch(rect)
 
     transformer = get_ILSVRC_net_transformer(net)
@@ -98,7 +92,6 @@ def visualize_heatmaps(net, img_path, mask_path, label, ann_path = None, show_ti
             results[heatmap_type] = {'bb': bb_coords, 'overlap': overlap}
         else:
             if show_titles:
-               # ax[i+2].set_title('%s' % heatmap_type)
                 ax[i+2].set_title('%s' % heatmap_dispnames[i])
         ax[i+2].get_xaxis().set_visible(False)
         ax[i+2].get_yaxis().set_visible(False)

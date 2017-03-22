@@ -1,7 +1,6 @@
 models/*.mat
 *.m~
 code/caffe/python/.ipynb_checkpoints
-*.txt
 *.prototxt
 *.pdf
 *.pyc
