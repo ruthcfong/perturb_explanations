@@ -1,2 +1,5 @@
-# neural_coding
-Project repo for DPhil research on understanding the neural encoding of various CNN layers.
+# Interpretable Explanations of Black Boxes by Meaningful Perturbation
+Ruth Fong and Andrea Vedaldi
+
+Paper here:
+
