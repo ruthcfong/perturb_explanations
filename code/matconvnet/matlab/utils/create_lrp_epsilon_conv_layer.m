@@ -1,8 +1,9 @@
-function lrp_layer = create_lrp_epsilon_conv_layer(conv_layer, epsilon)    
+function lrp_layer = create_lrp_epsilon_conv_layer(conv_layer, epsilon, include_bias)    
     assert(strcmp(conv_layer.type, 'conv'));
     lrp_layer = conv_layer;
     lrp_layer.type = 'custom';
     lrp_layer.epsilon = epsilon;
+    lrp_layer.include_bias = include_bias;
     lrp_layer.forward = @lrp_epsilon_forward;
     lrp_layer.backward = @lrp_epsilon_backward;
 end
@@ -17,7 +18,7 @@ end
 
 function res = lrp_epsilon_backward(l, res, res_)
     W = l.weights{1};
-    %b = l.weights{2};
+    b = l.weights{2};
     hstride = l.stride(1);
     wstride = l.stride(2);
 
@@ -63,7 +64,11 @@ function res = lrp_epsilon_backward(l, res, res_)
             Z = bsxfun(@times, x, W); % [hf, wf, df, nf, N]
 
             Zs = sum(sum(sum(Z,1),2),3); % [1 1 1 nf N] (convolution summing here)
-            %Zs = Zs + reshape(b, size(Zs));
+            if l.include_bias
+                size_Zs = size(Zs);
+                Zs = bsxfun(@plus, Zs, reshape(b, size_Zs(1:4)));
+                %Zs = Zs + reshape(b, size(Zs));
+            end
             Zs = Zs + l.epsilon*sign(Zs);
             Zs = repmat(Zs, [hf, wf, df, 1, 1]);
 

@@ -1,8 +1,9 @@
-function lrp_layer = create_lrp_alpha_beta_conv_layer(conv_layer, alpha)    
+function lrp_layer = create_lrp_alpha_beta_conv_layer(conv_layer, alpha, include_bias)    
     assert(strcmp(conv_layer.type, 'conv'));
     lrp_layer = conv_layer;
     lrp_layer.type = 'custom';
     lrp_layer.alpha = alpha;
+    lrp_layer.include_bias = include_bias;
     lrp_layer.forward = @lrp_alpha_beta_forward;
     lrp_layer.backward = @lrp_alpha_beta_backward;
 end
@@ -69,7 +70,7 @@ function res = lrp_alpha_beta_backward(l, res, res_)
     alpha = l.alpha;
     beta = 1 - l.alpha;
     W = l.weights{1};
-    %b = l.weights{2};
+    b = l.weights{2};
     hstride = l.stride(1);
     wstride = l.stride(2);
 
@@ -117,10 +118,15 @@ function res = lrp_alpha_beta_backward(l, res, res_)
             
             if ~(alpha == 0)
                 Zp = Z .* (Z > 0);
-                %Brp = b .* (b > 0);
 
                 Zsp = sum(sum(sum(Zp,1),2),3);
-                %Zsp = Zsp + reshape(Brp, size(Zsp)) ; % 1 x 1 x 1 x nf
+                if l.include_bias
+                    Brp = b .* (b > 0);
+                    size_Zsp = size(Zsp);
+                    Zsp = bsxfun(@plus, Zsp, reshape(Brp, size_Zsp(1:4)));
+                    %Zsp = Zsp + reshape(Brp, size(Zsp)) ; % 1 x 1 x 1 x nf
+                end
+
                 Zsp = repmat(reshape(Zsp,[1 1 1 nf N]),[hf wf df 1 1]); %  [hf x wf x df x nf x N]
 
                 Ralpha = reshape(alpha .* sum(Zp ./ Zsp .* rr,4), [hf wf df N]);
@@ -130,10 +136,16 @@ function res = lrp_alpha_beta_backward(l, res, res_)
 
             if ~(beta == 0)
                 Zn = Z .* (Z < 0);
-                %Brn = b .* (b < 0);
 
                 Zsn = sum(sum(sum(Zn,1),2),3);
-                %Zsn = Zsn + reshape(Brn, size(Zsn)) ; % N x Nf
+                
+                if l.include_bias
+                    Brn = b .* (b < 0);
+                    size_Zsn = size(Zsn);
+                    Zsn = bsxfun(@plus, Zsn, reshape(Brn, size_Zsn(1:4)));
+                    %Zsn = Zsn + reshape(Brn, size(Zsn)) ; % N x Nf
+                end
+
                 Zsn = repmat(reshape(Zsn,[1 1 1 nf N]),[hf wf df 1 1]); % [hf x wf x df x Nf x N]
 
                 Rbeta = reshape(beta .* sum(Zn ./ Zsn .* rr,4), [hf wf df N]);

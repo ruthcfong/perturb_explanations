@@ -1,6 +1,7 @@
  function [heatmap, res] = compute_heatmap(net, imgs, target_classes, heatmap_type, norm_deg, varargin)
     opts.lrp_epsilon = 100;
     opts.lrp_alpha = 1;
+    opts.lrp_include_bias = true;
     opts.layer_name = '';
     opts.gpu = NaN;
     opts = vl_argparse(opts, varargin);
@@ -89,6 +90,7 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
                 switch class(l.block)
                     case 'dagnn.Conv'
                         conv_block = Conv_LRP_epsilon('epsilon', opts.lrp_epsilon, ...
+                            'include_bias', opts.lrp_include_bias, ...
                             'size', l.block.size, ...
                             'hasBias', l.block.hasBias, ...
                             'opts', l.block.opts, ...
@@ -119,6 +121,7 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
                 switch class(l.block)
                     case 'dagnn.Conv'
                         conv_block = Conv_LRP_alpha_beta('alpha', opts.lrp_alpha, ...
+                            'include_bias', opts.lrp_include_bias, ...
                             'size', l.block.size, ...
                             'hasBias', l.block.hasBias, ...
                             'opts', l.block.opts, ...
@@ -195,23 +198,25 @@ function [heatmap, net] = compute_heatmap_dag(net, imgs, target_classes, heatmap
         inputs = {net.vars(input_var_i).name, imgs};
         net.eval(inputs);
         gradient = zeros(size(net.vars(output_var_i).value), 'single');
-        gradient(target_classes) = 1;
+        gradient(target_classes) = exp(net.vars(output_var_i).value(target_classes));
         derOutputs = {net.vars(output_var_i).name, gradient};
         net.eval(inputs, derOutputs);
     else
         assert(ndims(imgs) == 4);
-        inputs = {net.vars(input_var_i).name, imgs(:,:,:,1)};
-        net.eval(inputs);
-        gradient = zeros([size(net.vars(output_var_i).value) size(imgs, 4)], 'single');
         if ~isnan(opts.gpu)
             g = gpuDevice(opts.gpu+1);
             net.move('gpu');
             imgs = gpuArray(imgs);
-            gradient = gpuArray(gradient);
             target_classes = gpuArray(target_classes);
         end
+        inputs = {net.vars(input_var_i).name, imgs};
+        net.eval(inputs);
+        gradient = zeros(size(net.vars(output_var_i).value), 'single');
+        if ~isnan(opts.gpu)
+            gradient = gpuArray(gradient);
+        end
         for i=1:size(imgs,4)
-            gradient(1,1,target_classes(i),i) = 1;
+            gradient(1,1,target_classes(i),i) = exp(net.vars(output_var_i).value(1,1,target_classes(i),i));
         end
         inputs = {net.vars(input_var_i).name, imgs};
         derOutputs = {net.vars(output_var_i).name, gradient};
@@ -280,7 +285,7 @@ function [heatmap, res] = compute_heatmap_simplenn(net, imgs, target_classes, he
                 switch net.layers{i}.type
                     case 'conv'
                         net.layers{i} = create_lrp_epsilon_conv_layer(...
-                            net.layers{i}, opts.lrp_epsilon);
+                            net.layers{i}, opts.lrp_epsilon, opts.lrp_include_bias);
                     case 'normalize'
                         net.layers{i}.type = 'normalize_nobackprop';
                     case 'lrn'
@@ -295,7 +300,7 @@ function [heatmap, res] = compute_heatmap_simplenn(net, imgs, target_classes, he
                 switch net.layers{i}.type
                     case 'conv'
                         net.layers{i} = create_lrp_alpha_beta_conv_layer(...
-                            net.layers{i}, opts.lrp_alpha);
+                            net.layers{i}, opts.lrp_alpha, opts.lrp_include_bias);
                     case 'normalize'
                         net.layers{i}.type = 'normalize_nobackprop';
                     case 'lrn'
@@ -324,20 +329,22 @@ function [heatmap, res] = compute_heatmap_simplenn(net, imgs, target_classes, he
     if ndims(imgs) <= 3
         res = vl_simplenn(net, imgs);
         gradient = zeros(size(res(end).x), 'single');
-        gradient(target_classes) = 1;
+        gradient(target_classes) = exp(res(end).x(target_classes));
         res = vl_simplenn(net, imgs, gradient);
     else
-        res = vl_simplenn(net, imgs(:,:,:,1));
-        gradient = zeros([size(res(end).x) size(imgs,4)], 'single');
         if ~isnan(opts.gpu)
             g = gpuDevice(opts.gpu+1);
             net = vl_simplenn_move(net, 'gpu');
             imgs = gpuArray(imgs);
-            gradient = gpuArray(gradient);
             target_classes = gpuArray(target_classes);
         end
+        res = vl_simplenn(net, imgs);
+        gradient = zeros(size(res(end).x), 'single');
+        if ~isnan(opts.gpu)
+            gradient = gpuArray(gradient);
+        end
         for i=1:size(imgs,4)
-            gradient(1,1,target_classes(i),i) = 1;
+            gradient(1,1,target_classes(i),i) = exp(res(end).x(1,1,target_classes(i),i));
         end
         res = vl_simplenn(net, imgs, gradient);
     end

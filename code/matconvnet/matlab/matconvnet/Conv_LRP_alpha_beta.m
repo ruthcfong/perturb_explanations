@@ -1,6 +1,7 @@
-classdef Conv_LRP_epsilon < dagnn.Conv
+classdef Conv_LRP_alpha_beta < dagnn.Conv
     properties
-        epsilon = 100;
+        alpha = 1;
+        include_bias = true;
     end
     
     methods
@@ -15,6 +16,8 @@ classdef Conv_LRP_epsilon < dagnn.Conv
 %         end
 
         function [derInputs, derParams] = backward(obj, inputs, params, derOutputs)
+            beta = 1 - obj.alpha;
+            
             if ~obj.hasBias, params{2} = [] ; end
 
             % differentiate w.r.t. parameters as typical
@@ -70,19 +73,52 @@ classdef Conv_LRP_epsilon < dagnn.Conv
                 for w=1:w_out
                     x = X((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:); % [hf, wf, df,N]
                     x = permute(repmat(x, [1 1 1 1 nf]), [1 2 3 5 4]); % [hf, wf, d_in, nf, N]
+                    rr = repmat(reshape(next_relevance(h,w,:,:), [1 1 1 nf N]), [hf, wf, df, 1, 1]); % [hf, wf, df, nf, N]
                     Z = bsxfun(@times, x, W); % [hf, wf, df, nf, N]
 
-                    Zs = sum(sum(sum(Z,1),2),3); % [1 1 1 nf N] (convolution summing here)
-                    %Zs = Zs + reshape(b, size(Zs));
-                    Zs = Zs + obj.epsilon*sign(Zs);
-                    Zs = repmat(Zs, [hf, wf, df, 1 1]);
+                    if ~(obj.alpha == 0)
+                        Zp = Z .* (Z > 0);
+                        %Brp = b .* (b > 0);
 
-                    zz = Z ./ Zs;
+                        Zsp = sum(sum(sum(Zp,1),2),3);
+                        
+                        if obj.include_bias
+                            Brp = b .* (b > 0);
+                            size_Zsp = size(Zsp);
+                            Zsp = bsxfun(@plus, Zsp, reshape(Brp, size_Zsp(1:4)));
+                            %Zsp = Zsp + reshape(Brp, size(Zsp)) ; % 1 x 1 x 1 x nf
+                        end
+                        
+                        Zsp = repmat(reshape(Zsp,[1 1 1 nf N]),[hf wf df 1 1]); %  [hf x wf x df x nf x N]
+                        Ralpha = reshape(obj.alpha .* sum(Zp ./ Zsp .* rr,4), [hf wf df N]);
+                    else
+                        Ralpha = 0;
+                    end
+                    
+                    if ~(beta == 0)
+                        Zn = Z .* (Z < 0);
+                        %Brn = b .* (b < 0);
 
-                    rr = repmat(reshape(next_relevance(h,w,:,:), [1 1 1 nf N]), [hf, wf, df, 1 1]); % [hf, wf, df, nf, N]
+                        Zsn = sum(sum(sum(Zn,1),2),3);
+                        
+                        if obj.include_bias
+                            Brn = b .* (b < 0);
+                            size_Zsn = size(Zsn);
+                            Zsn = bsxfun(@plus, Zsn, reshape(Brn, size_Zsn(1:4)));
+                            %Zsn = Zsn + reshape(Brn, size(Zsn)) ; % N x Nf
+                        end
+
+                        
+                        Zsn = repmat(reshape(Zsn,[1 1 1 nf N]),[hf wf df 1 1]); % [hf x wf x df x Nf x N]
+
+                        Rbeta = reshape(beta .* sum(Zn ./ Zsn .* rr,4), [hf wf df N]);
+                    else
+                        Rbeta = 0;
+                    end
+
                     rx = relevance((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:);
                     relevance((h-1)*hstride+1:(h-1)*hstride+hf,(w-1)*wstride+1:(w-1)*wstride+wf,:,:) = ...
-                        rx + reshape(sum(zz .* rr, 4), size(rx));
+                        rx + Ralpha + Rbeta;
                 end
             end
 
@@ -104,7 +140,7 @@ classdef Conv_LRP_epsilon < dagnn.Conv
             end
         end
         
-        function obj = Conv_LRP_epsilon(varargin)
+        function obj = Conv_LRP_alpha_beta(varargin)
             obj.load(varargin) ;
             % normalize field by implicitly calling setters defined in
             % dagnn.Filter and here
