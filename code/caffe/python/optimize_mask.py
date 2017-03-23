@@ -12,12 +12,65 @@ import gc
 from PIL import ImageFilter, Image
 
 from helpers import *
+from defaults import caffe_dir
 
-def optimize_mask(net, path, target, labels, given_gradient = False, norm_score = True, num_iters = 500, lr = 1e0, l1_lambda = 5e-8, 
-                  l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 5e-6, tv_beta = 1.5, mask_scale = 1, use_conv_norm = False, blur_mask = 0, 
-                  jitter = 0, noise = 0, null_type = 'blur', mask_init = None, gpu = None, start_layer = None, 
-                  end_layer = None, plot_step = None, debug = False,
-                  fig_path = None, mask_path = None):
+def generate_learned_mask(net, path, label, given_gradient = False, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
+        l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
+        jitter = 4, noise = 0, null_type = 'blur', gpu = None, start_layer = 'data', end_layer = 'prob', 
+        plot_step = None, debug = False, fig_path = None, mask_path = None, verbose = False, show_fig = True, mask_init_type = 'circle', num_top = 0, 
+        labels = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')):
+        
+        if mask_path is not None and os.path.exists(mask_path):
+            print "%s already exists; cancel if you don't want to overwrite it" % mask_path
+        start = time.time()
+        net_transformer = get_ILSVRC_net_transformer(net)
+
+        img = net_transformer.preprocess('data', caffe.io.load_image(path))
+        net.blobs['data'].data[...] = img
+        net.forward()
+        scores = np.squeeze(net.blobs['prob'].data)
+        sorted_idx = np.argsort(scores)
+        if given_gradient:
+            target = np.zeros(scores.shape)
+            if num_top == 0:
+                target[label] = 1
+            else:
+                target[sorted_idx[:-(num_top+1):-1]] = 1
+        else:
+            if num_top == 0:
+                target = np.array([label])
+            else:
+                target = sorted_idx[:-(num_top+1):-1]
+
+        if mask_init_type == 'circle':
+            mask_radius = test_circular_masks(net, path, label, plot = False)
+            mask_init = 1-create_blurred_circular_mask((net.blobs['data'].data.shape[2], net.blobs['data'].data.shape[3]),
+                                             mask_radius, center = None, sigma = 10)
+        elif mask_init_type == None:
+            mask_init = None
+
+        if show_fig:
+           plt.ion() 
+        else:
+            plt.ioff()
+
+        optimize_mask(net, path, target, labels = labels, given_gradient = given_gradient, norm_score = norm_score,
+                            num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal,
+                            l1_lambda_2 = l1_lambda_2, tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale,
+                            use_conv_norm= use_conv_norm, blur_mask = blur_mask, jitter = jitter,
+                            null_type = null_type, mask_init = mask_init, gpu = gpu, start_layer = None, end_layer = end_layer,
+                            plot_step = plot_step, debug = debug, fig_path = fig_path, mask_path = mask_path, verbose = verbose)
+
+        plt.ion()
+        end = time.time()
+        if verbose:
+            print 'Time elapsed:', (end-start)
+        #plt.close()
+
+def optimize_mask(net, path, target, labels, given_gradient = False, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
+                  l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
+                  jitter = 4, noise = 0, null_type = 'blur', mask_init = None, gpu = None, start_layer = None, 
+                  end_layer = None, plot_step = None, debug = False, fig_path = None, mask_path = None, verbose = False):
     # adam parameters
     beta1 = 0.9
     beta2 = 0.999
@@ -79,6 +132,8 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         null_rand_img = np.random.random(jitter_shape)*255
         null_img = np.concatenate((null_blur_img, null_blank_img, null_rand_img))
         net.blobs['data'].reshape(3,3,net_shape[2],net_shape[3])
+        if given_gradient:
+            gradient = np.tile(gradient, [3, len(gradient)])
     elif null_type == 'random_sample':
         assert(false)
     elif null_type == 'mean_img':
@@ -131,7 +186,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         elif null_type == 'avg_blur_blank_noise':
             null_rand_img = np.random.random(jitter_shape)*255
             null_img[2] = null_rand_img
-            null_img_ = null_img[:,j1:(net_shape[2]+j1),j2:(net_shape[3]+j2)]
+            null_img_ = null_img[:,:,j1:(net_shape[2]+j1),j2:(net_shape[3]+j2)]
             img_ = img_.reshape(net_shape)
             img_ = np.concatenate((img_,img_,img_))
         else:
@@ -157,7 +212,10 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         if not given_gradient:
             output = np.squeeze(net.blobs[end_layer].data)
             gradient = np.squeeze(np.zeros(net.blobs[end_layer].data.shape))
-            gradient[target] = output[target]
+            if null_type == 'avg_blur_blank_noise':
+                gradient[:,target] = output[:,target]
+            else:
+                gradient[target] = output[target]
         net.blobs[end_layer].diff[...] = gradient
         net.backward(start = end_layer, end = start_layer)
        
@@ -279,13 +337,13 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
                                                                                  tv_lambda*np.abs(dtv).mean())
             
     if fig_path is not None:
-        directory = os.path.dirname(fig_path)
+        directory = os.path.dirname(os.path.abspath(fig_path))
         if not os.path.exists(directory):
             os.makedirs(directory)
         plt.savefig(fig_path)
 
     if mask_path is not None:
-        directory = os.path.dirname(mask_path)
+        directory = os.path.dirname(os.path.abspath(mask_path))
         if not os.path.exists(directory):
             os.makedirs(directory)
         if mask_scale > 1:
@@ -293,8 +351,10 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         if blur_mask > 0:
             mask = blur(mask, radius=blur_mask)
         np.save(mask_path, mask)
-        print 'saved mask to %s' % mask_path
+        if verbose:
+            print 'saved mask to %s' % mask_path
     
+    net.blobs[start_layer].reshape(net_shape[0], net_shape[1], net_shape[2], net_shape[3])
     return mask
 
 def resize(img, scale, interp = 'nearest', diff = False):
@@ -456,7 +516,6 @@ def test_circular_masks(net, img_path, label, end_layer = 'prob', radii = np.ara
     
     #net.blobs['data'].reshape(1,3,net.blobs['data'].data.shape[2], net.blobs['data'].data.shape[3])
 
-    print first_i, radii[first_i]
     return radii[first_i]
 
 '''

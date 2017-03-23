@@ -9,6 +9,7 @@ import sys, pylab, os, urllib, getopt
 from collections import OrderedDict
 
 from helpers import *
+from defaults import caffe_dir
 
 def visualize_heatmaps(net, img_path, mask_path, label, ann_path = None, show_titles = True, show_bbs = True, mask_alpha = 1.5, bb_method = 'mean', mask_flip = True, thres_first = True, fig_path = None, gpu = None,
                        synsets = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'),
@@ -320,27 +321,42 @@ def localization_with_heatmaps(net, paths, labels, alpha, heatmap_type, out_path
         f.close()
 
 
-def main():
-    gpu = 3 
+def main(argv):
+    if len(argv) < 4:
+        print 'Not enough arguments'
+        print 'Usage: python heatmaps.py OUT_DIR/OUT_FILE DATA_DESC HEATMAP_TYPE THRESHOLD_TYPE [MASK_DIR] [GPU]'
+        return
+    out_path = argv[0]
+    data_desc = argv[1]
+    heatmap_type = argv[2]
+    bb_method = argv[3]
+    if heatmap_type == 'mask':
+        assert(len(argv) > 4)
+        mask_dir = argv[4]
+        gpu = int(argv[5]) if len(argv) >= 6 else None
+    else:
+        gpu = int(argv[4]) if len(argv) >= 5 else None
+    
     batch_size = 50 
     net_type = 'googlenet'
-    #data_desc = 'annotated_train_heldout' 
-    data_desc = 'val'
-    heatmap_type = 'excitation_backprop'
-    bb_method = 'mean'
-    #data_desc = 'animal_parts'
-    #heatmap_type = 'guided_backprop'
+    #data_desc = 'val'
+    #heatmap_type = 'excitation_backprop'
+    #bb_method = 'mean'
 
     assert(data_desc == 'annotated_train_heldout' or data_desc == 'val' or data_desc == 'animal_parts')
     assert(heatmap_type == 'mask' or heatmap_type == 'saliency' or heatmap_type == 'guided_backprop' or heatmap_type == 'excitation_backprop')
-
-    caffe.set_device(gpu)
-    caffe.set_mode_gpu()
+    assert(bb_method == 'mean' or bb_method == 'min_max_diff' or bb_method == 'energy')
+    
+    if gpu is not None:
+        caffe.set_device(gpu)
+        caffe.set_mode_gpu()
+    else:
+        caffe.set_mode_cpu()
 
     net = get_net(net_type)
 
     if data_desc == 'annotated_train_heldout':
-        (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/annotated_train_heldout_imdb.txt')
+        (paths, labels) = read_imdb('../../../data/ilsvrc12/annotated_train_heldout_imdb.txt')
         num_imgs = len(labels)
         if bb_method == 'mean':
             alphas = np.arange(0,10.5,0.5)
@@ -348,18 +364,17 @@ def main():
             alphas = np.arange(0,1,0.05)
         elif bb_method == 'energy':
             alphas = np.arange(0,1,0.05)
+        out_dir = out_path
     elif data_desc == 'val':
-        (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/val_imdb.txt')
+        (paths, labels) = read_imdb('../../../data/ilsvrc12/val_imdb.txt')
         num_imgs = len(labels)
         data_desc = 'val'
     elif data_desc == 'animal_parts':
-        (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/animal_parts_require_both_min_10_imdb.txt')
+        (paths, labels) = read_imdb('../../../data/ilsvrc12/animal_parts_require_both_min_10_imdb.txt')
         num_imgs = len(labels)
 
     if data_desc != 'annotated_train_heldout':
         if heatmap_type == 'mask':
-            #alphas = [1.0] # target class setting
-            #alphas = [0.5] # top5 setting
             if bb_method == 'mean':
                 #alphas = [1.0] # target class setting
                 alphas = [0.5] # top5 setting
@@ -389,7 +404,7 @@ def main():
             elif bb_method == 'energy':
                 alphas = [0.60]
 
-    labels_desc = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_words.txt', str, delimiter='\t')
+    labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
 
     if type(paths) is not np.ndarray:
         paths = np.array(paths)
@@ -397,25 +412,18 @@ def main():
         labels = np.array(labels)
 
     if heatmap_type == 'mask':
-        res_dir = '/data/ruthfong/neural_coding/pycaffe_results'
-        #mask_rel_dir = 'googlenet_train_heldout_given_grad_1_norm_0/min_top0_prob_blur/lr_-1.00_l1_lambda_-4.00_tv_lambda_-inf_l1_lambda_2_-2.00_beta_3.00_mask_scale_8_blur_mask_5_jitter_4_noise_-inf_num_iters_300_tv2_mask_init'
-        mask_rel_dir = 'googlenet_val_given_grad_1_norm_0/min_top5_prob_blur/lr_-1.00_l1_lambda_-3.00_tv_lambda_-inf_l1_lambda_2_-2.00_beta_2.00_mask_scale_8_blur_mask_5_jitter_4_noise_-inf_num_iters_300_tv2_mask_init'
-         
-        mask_paths = [os.path.join(res_dir, mask_rel_dir, '%d.npy' % x) for x in range(num_imgs)]
+        mask_paths = [os.path.join(mask_dir, '%d.npy' % x) for x in range(num_imgs)]
 
-        #alphas = np.arange(0,1.5,0.10)
         for i in range(len(alphas)):
             alpha = alphas[i]
-            out_path = '/data/ruthfong/neural_coding/loc_preds/%s_%s_gt_pycaffe/%s/%s_alpha_%.2f_norm_Inf.txt' % (
-                        net_type, data_desc, mask_rel_dir, bb_method, alpha)
-            #out_path = '/data/ruthfong/neural_coding/loc_preds/%s_annotated_train_heldout_gt_pycaffe/%s/alpha_%.1f_norm_Inf.txt' % (
-            #    net_type,mask_rel_dir,alpha)
+            if data_desc == 'annotated_train_heldout':
+                out_path = os.path.join(out_dir, '%s_%s_alpha_%.2f_norm_Inf.txt' % (heatmap_type, bb_method, alpha))
             if os.path.exists(out_path):
                 print 'skipping %s because it exists' % out_path
                 continue
             localization_with_masks(net, paths[:num_imgs], labels[:num_imgs], mask_paths[:num_imgs], alpha, out_path, 
                                     norm_deg = np.inf, bb_method = bb_method, mask_flip = True, thres_first = True, batch_size = batch_size, 
-                                    indexing = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/ascii_order_to_synset_order.txt'))
+                                    indexing = np.loadtxt('../../../data/ilsvrc12/ascii_order_to_synset_order.txt'))
     else:
         if net_type == 'googlenet':
             top_name = 'loss3/classifier'
@@ -424,8 +432,7 @@ def main():
 
         if heatmap_type == 'excitation_backprop':
             if net_type == 'googlenet':
-                #bottom_name = 'pool2/3x3_s2'
-                bottom_name = 'pool3/3x3_s2'
+                bottom_name = 'pool2/3x3_s2'
             else:
                 assert(False)
             norm_deg = -1
@@ -437,55 +444,13 @@ def main():
 
         for i in range(len(alphas)):
             alpha = alphas[i]
-            out_path = '/data/ruthfong/neural_coding/loc_preds/%s_%s_gt_pycaffe/%s/%s_pool3_alpha_%.2f_norm_%s.txt' % (
-                        net_type, data_desc, heatmap_type, bb_method, alpha, norm_desc)
+            if data_desc == 'annotated_train_heldout':
+                out_path = os.path.join(out_dir, '%s_%s_alpha_%.2f_norm_%s.txt' % (heatmap_type, bb_method, alpha, norm_desc))
             localization_with_heatmaps(net, paths, labels, alpha, heatmap_type, out_path, top_name, bottom_name = bottom_name,
                                batch_size = batch_size, gpu = gpu, norm_deg = norm_deg, bb_method = bb_method, thres_first = True,
                                indexing = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/ascii_order_to_synset_order.txt'))
 
 
-        '''try:
-	opts, args = getopt.getopt(argv, 'hn:m:o:a:dgrt', ['net_type=', 'heatmap_type=', 'out_path=', 'alpha=', 'norm_deg', 'gpu', 'thres_first', 'use_train'])
-    except getopt.GetoptError:
-        pass
-        sys.exit(2)
-    net_type = ''
-    heatmap_type = ''
-    out_path = ''
-    alpha = -1
-    norm_deg = np.inf
-    gpu = None
-    thres_first = True
-    use_train = False 
-
-    for opt, arg in opts:
-        if opt == '-h':
-            print 'heatmaps.py -n net_type -m heatmap_type -o out_path -a alpha -d <norm_deg (default: Inf)> -g <gpu (default: None)> -r <thres_first (default: True)> -t <use_train (default: False)>'
-        elif opt in ('-n', '--net_type'):
-            net_type = arg
-        elif opt in ('-m', '--heatmap_type'):
-            heatmap_type = arg
-        elif opt in ('-o', '--out_path'):
-            out_path = arg
-        elif opt in ('-a', '--alpha'):
-            alpha = float(arg)
-        elif opt in ('-d', '--norm_deg'):
-            norm_deg = arg
-            if norm_deg in ('inf', 'Inf'):
-                norm_deg = np.inf
-            elif norm_deg in ('neginf', 'neg_inf', 'neg_Inf', 'Neg_Inf'):
-                norm_deg = -np.inf
-            else:
-                norm_deg = int(norm_deg)
-        elif opt in ('-g', '--gpu'):
-            gpu = int(arg)
-        elif opt in ('-r', '--thres_first'):
-            thres_first = bool(arg)
-        elif opt in ('-t', '--use_train'):
-            use_train = bool(arg)
-            '''
-
-
 if __name__ == '__main__':
-    #main(sys.argv[1:])
-    main()
+    main(sys.argv[1:])
+    #main()

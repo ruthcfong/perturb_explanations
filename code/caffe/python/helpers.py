@@ -2,6 +2,17 @@ import caffe
 import numpy as np
 from bs4 import BeautifulSoup
 import os
+from shutil import copyfile
+
+def create_heldout_annotated_dir(old_ann_dir, new_heldout_ann_dir, imdb='../../../data/ilsvrc12/annotated_train_heldout_imdb.txt'):
+    (paths, _) = read_imdb(imdb)
+    if not os.path.exists(new_heldout_ann_dir):
+        os.makedirs(new_heldout_ann_dir)
+    
+    for i in range(len(paths)):
+        old_ann_file = os.path.join(old_ann_dir, paths[i].split('/')[-2], paths[i].split('/')[-1]).split('.')[0] + '.xml'
+        new_ann_file = os.path.join(new_heldout_ann_dir, '%.6d.xml' % i)
+        copyfile(old_ann_file, new_ann_file)
 
 def write_imdb(split_dir, gt_file, out_file):   
     '''
@@ -269,7 +280,6 @@ def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.l
     bbs = bb_data[:,1:].astype(int)
 
     num_examples = len(ann_paths)
-    assert(num_examples == len(bb_labels))
     
     res = np.zeros(num_examples, dtype=int)
     overlap = np.zeros(num_examples)
