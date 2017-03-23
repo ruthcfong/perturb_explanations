@@ -3,11 +3,8 @@ import caffe
 import numpy as np
 import pylab
 import matplotlib.pyplot as plt
-import sys, os, time
+import sys, os, time, argparse
 import scipy
-import time 
-import gc
-#import util
 
 from PIL import ImageFilter, Image
 
@@ -54,7 +51,7 @@ def generate_learned_mask(net, path, label, given_gradient = False, norm_score =
         else:
             plt.ioff()
 
-        optimize_mask(net, path, target, labels = labels, given_gradient = given_gradient, norm_score = norm_score,
+        mask = optimize_mask(net, path, target, labels = labels, given_gradient = given_gradient, norm_score = norm_score,
                             num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal,
                             l1_lambda_2 = l1_lambda_2, tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale,
                             use_conv_norm= use_conv_norm, blur_mask = blur_mask, jitter = jitter,
@@ -66,6 +63,7 @@ def generate_learned_mask(net, path, label, given_gradient = False, norm_score =
         if verbose:
             print 'Time elapsed:', (end-start)
         #plt.close()
+        return mask
 
 def optimize_mask(net, path, target, labels, given_gradient = False, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
                   l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
@@ -617,19 +615,40 @@ def check_mask_generalizability(net, img_path, target, mask_path, null_type = 'b
             os.makedirs(directory)
         plt.savefig(fig_path)
 
-def main():
-    gc.enable()
+def main(argv):
+    parser = argparse.ArgumentParser(description='Learn perturbation masks for ImageNet examples.')
 
-    gpu = 0 
-    net_type = 'googlenet'
-    data_desc = 'val'
+    parser.add_argument('data_desc', default='train_heldout', help="choose from ['train_heldout', 'val', 'animal_parts']")
+
+    parser.add_argument('-n', '--net_type', default='googlenet', help="choose from ['googlenet', 'vgg16', 'alexnet']")
+    parser.add_argument('-g', '--gpu', default=None, type=int, help="zero-indexed gpu to use [i.e. 0-3]") 
+    parser.add_argument('-s', '--start', default=0, type=int, help="start index")
+    parser.add_argument('-e', '--end', default=10, type=int, help="end index")
+    parser.add_argument('-f', '--fig_dir', default=None)
+    parser.add_argument('-m', '--mask_dir', default=None)
+    parser.add_argument('--show_fig', action='store_true')
+
+    #gpu = 0 
+    #net_type = 'googlenet'
     #data_desc = 'train_heldout'
 
-    caffe.set_device(gpu)
-    caffe.set_mode_gpu()
+    args = parser.parse_args(argv)
+    data_desc = args.data_desc
+    gpu = args.gpu
+    net_type = args.net_type
+    start = args.start
+    end = args.end
+    fig_dir = args.fig_dir
+    mask_dir = args.mask_dir
+    show_fig = args.show_fig
+
+    if gpu is not None:
+        caffe.set_device(gpu)
+        caffe.set_mode_gpu()
+    else:
+        caffe.set_mode_cpu()
 
     assert(data_desc == 'train_heldout' or data_desc == 'val' or data_desc == 'animal_parts')
-    #net = get_net(net_type)
 
     if data_desc == 'train_heldout':
         (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/annotated_train_heldout_imdb.txt')
@@ -638,127 +657,12 @@ def main():
     elif data_desc == 'animal_parts':
         (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/animal_parts_require_both_min_10_imdb.txt')
     
-    labels_desc = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_words.txt', str, delimiter='\t')
+    labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
 
-    paths = np.array(paths)
-    labels = np.array(labels)
-
-    num_top = 5
-
-    #num_iters = 500
-    #lr = 1e0
-    #l1_lambda = 5e-8
-    #l1_ideal = 1
-    #tv_lambda = 5e-6
-    #tv_beta = 1.5
-    #jitter = 2
-    #null_type = 'blur'
-
-    #num_iters = 300
-    #lr = 1e0
-    #l1_lambda = 1e-5
-    #l1_ideal = 1
-    #tv_lambda = 1e-3
-    #tv_beta = 3
-    #jitter = 8
-    #noise = 1e-3
-    #null_type = 'blur'
-    #given_gradient = False
-    
+    from defaults import (num_iters, lr, l1_lambda, l1_ideal, l1_lambda_2, tv_lambda, tv_beta, jitter, num_top, noise, null_type, 
+            given_gradient, norm_score, end_layer, use_conv_norm, blur_mask, mask_scale)
     '''
-    num_iters = 300
-    lr = 1e0
-    l1_lambda = 1e-4
-    l1_ideal = 1
-    tv_lambda = 1e-2
-    tv_beta = 3
-    jitter = 8
-    noise=1e-3
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = True
-    use_conv_norm = False
-
-    num_iters = 500
-    lr = 1e0
-    l1_lambda = 5e-8
-    l1_ideal = 1
-    tv_lambda = 5e-6
-    tv_beta = 1.5
-    jitter = 2
-    noise = 1e-3
-    null_type = 'blur'
-    given_gradient = True
-    
-
-    num_iters = 750 
-    lr = 1e-1
-    l1_lambda = 5e-8
-    l1_ideal = 1
-    tv_lambda = 5e-6
-    tv_beta = 1.5
-    jitter = 2
-    noise = 1e-3
-    null_type = 'blur'
-    given_gradient = True
-    
-
-    num_iters = 300 
-    lr = 1e-1
-    l1_lambda = 1e-5
-    l1_ideal = 1
-    tv_lambda = 1e-3
-    tv_beta = 3
-    jitter = 4
-    num_top = 5
-    noise = 1e-3
-    null_type = 'avg_blur_blank_noise'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 5 
-    
-
-    num_iters = 500 
-    lr = 1e0
-    l1_lambda = 1e-4
-    l1_ideal = 1
-    l1_lambda_2 = 0 
-    tv_lambda = 1e-2
-    tv_beta = 3
-    jitter = 4
-    num_top = 5
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 0 
-    mask_scale = 8 
-    mask_init = None
-
-    num_iters = 300
-    lr = 1e-1
-    l1_lambda = 1e-4
-    l1_ideal = 1
-    l1_lambda_2 = 0
-    tv_lambda = 1e-2
-    tv_beta = 3
-    jitter = 4
-    num_top = 5
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 0
-    mask_scale = 1
-    '''
-    
-
+    # default parameters
     num_iters = 300
     lr = 1e-1
     l1_lambda = 1e-4
@@ -776,64 +680,11 @@ def main():
     use_conv_norm = False
     blur_mask = 5
     mask_scale = 8
+    '''
     
 
     '''
-    num_iters = 300
-    lr = 1e-1
-    l1_lambda = 1e-2
-    l1_ideal = 1
-    l1_lambda_2 = 0
-    tv_lambda = 1e-2
-    tv_beta = 1
-    jitter = 4
-    num_top = 0
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 0
-    mask_scale = 28
-
-    num_iters = 300
-    lr = 1e-1
-    l1_lambda = 1e-3
-    l1_ideal = 1
-    l1_lambda_2 = 0
-    tv_lambda = 1e-3
-    tv_beta = 1
-    jitter = 4
-    num_top = 5
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 0
-    mask_scale = 14
-
-    num_iters = 300
-    lr = 1e-1
-    l1_lambda = 1e-0
-    l1_ideal = 1
-    l1_lambda_2 = 0
-    tv_lambda = 1e-0
-    tv_beta = 1
-    jitter = 4
-    num_top = 0
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = True
-    end_layer = 'loss3/classifier'
-    use_conv_norm = False
-    blur_mask = 0
-    mask_scale = 14
-    
-
+    # localization parameters
     num_iters = 300
     lr = 1e-1
     l1_lambda = 1e-3
@@ -852,63 +703,33 @@ def main():
     blur_mask = 5
     mask_scale = 8
     '''
-    
-    #null_type = 'random_noise'
 
     net = get_net(net_type)
     net_transformer = get_ILSVRC_net_transformer(net)
-    for i in range(21875, 25000):
-    #for i in range(100):
+    for i in range(start, end):
         fig_path = None
-        if i < 100:
-            fig_path = os.path.join('/data/ruthfong/neural_coding/pycaffe_figs/%s_%s_given_grad_%d_norm_%d/min_top%d_%s_%s/lr_%.2f_l1_lambda_%.2f_l1_lambda2_%.2f_tv_lambda_%.2f_beta_%.2f_mask_scale_%d_blur_mask_%d_jitter_%d_noise_%.1f_num_iters_%d_tv2_mask_init/%d.png' % (
-                net_type, data_desc, int(given_gradient), int(norm_score), num_top, end_layer, null_type, np.log10(lr), np.log10(l1_lambda), np.log10(l1_lambda_2), np.log10(tv_lambda), tv_beta, mask_scale, blur_mask, jitter, np.log10(noise), num_iters, i))
-        mask_path = os.path.join('/data/ruthfong/neural_coding/pycaffe_results/%s_%s_given_grad_%d_norm_%d/min_top%d_%s_%s/lr_%.2f_l1_lambda_%.2f_tv_lambda_%.2f_l1_lambda_2_%.2f_beta_%.2f_mask_scale_%d_blur_mask_%d_jitter_%d_noise_%.1f_num_iters_%d_tv2_mask_init/%d.npy' % (
-            net_type, data_desc, int(given_gradient), int(norm_score), num_top, end_layer, null_type, np.log10(lr), np.log10(l1_lambda), np.log10(l1_lambda_2), np.log10(tv_lambda), tv_beta, mask_scale, blur_mask, jitter, np.log10(noise), num_iters, i))
+        mask_path = None
+        if fig_dir is not None:
+            fig_path = os.path.join(fig_dir, '%d.png' % i)
+        if mask_dir is not None:
+            mask_path = os.path.join(mask_dir, '%d.npy' % i)
 
-
-        if os.path.exists(mask_path):
+        if mask_dir is not None and os.path.exists(mask_path):
             print '%s already exists so skipping' % mask_path
             continue
 
         start = time.time()
-        #net = get_net(net_type)
-        #net_transformer = get_ILSVRC_net_transformer(net)
+        
+        generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig)
+        #generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
+        #        num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, 
+        #        tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask,
+        #        jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top)
 
-        path = paths[i]
-        img = net_transformer.preprocess('data', caffe.io.load_image(path))
-        net.blobs['data'].data[...] = img
-        net.forward()
-        scores = np.squeeze(net.blobs['prob'].data)
-        sorted_idx = np.argsort(scores)
-        if given_gradient:
-            target = np.zeros(scores.shape)
-            if num_top == 0:
-                target[labels[i]] = 1
-            else:
-                target[sorted_idx[:-(num_top+1):-1]] = 1
-        else:
-            if num_top == 0:
-                target = np.array([labels[i]])
-            else:
-                target = sorted_idx[:-(num_top+1):-1]
-
-        mask_radius = test_circular_masks(net, paths[i], labels[i], plot = False)
-        mask_init = 1-create_blurred_circular_mask((net.blobs['data'].data.shape[2], net.blobs['data'].data.shape[3]), 
-                                             mask_radius, center = None, sigma = 10)
-
-        optimize_mask(net, path, target, labels = labels_desc, given_gradient = given_gradient, norm_score = norm_score, 
-                            num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = 1, 
-                            l1_lambda_2 = l1_lambda_2, tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale,  
-                            use_conv_norm= use_conv_norm, blur_mask = blur_mask, jitter = jitter,
-                            null_type = null_type, mask_init = mask_init, gpu = gpu, start_layer = None, end_layer = end_layer, 
-                            plot_step = None, debug = False, fig_path = fig_path, mask_path = mask_path)
-        #del net
         end = time.time()
         print 'Time elapsed:', (end-start)
 
-        plt.close()
     del net
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
