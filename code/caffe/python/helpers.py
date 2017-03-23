@@ -270,8 +270,7 @@ def compute_overlap(bb, objs, label):
             ov_vector.append(ov)
     return ov_vector
 
-
-def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'), 
+def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'),
                                  reverse_indexing=np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_order_to_ascii_order.txt', dtype=int)):
     if verbose:
         print 'Loading bounding boxes from', bb_file
@@ -280,21 +279,30 @@ def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.l
     bbs = bb_data[:,1:].astype(int)
 
     num_examples = len(ann_paths)
-    
+
+    assert(num_examples == len(bb_labels))
+
+    blacklist = np.zeros(num_examples)
+    if num_examples == 50000:
+        blacklist_idx = np.loadtxt('/data/ruthfong/ILSVRC2012/ILSVRC2014_devkit/data/ILSVRC2014_clsloc_validation_blacklist.txt', dtype=int) - 1
+        blacklist[blacklist_idx] = 1
+
     res = np.zeros(num_examples, dtype=int)
     overlap = np.zeros(num_examples)
     for i in range(num_examples):
+        if blacklist[i]:
+            continue
         objs = load_objs(ann_paths[i])
         ov_vector = compute_overlap(bbs[i], objs, synsets[reverse_indexing[bb_labels[i]-1]])
         try:
-            res[i] = max(ov_vector) > 0.5
+            res[i] = max(ov_vector) < 0.5
         except:
             print i, ov_vector
         overlap[i] = max(ov_vector)
-    acc = 1-res.sum()/float(num_examples)
+    acc = res.sum()/float(num_examples - blacklist.sum())
     if verbose:
         print 'Localization Accuracy:', acc
-    return (acc, res, overlap)
+    return (acc, 1-res, overlap)
 
 def find_labels(phrase, labels_desc = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_words.txt', str, delimiter='\t')):
     indicator = [phrase in label for label in labels_desc]

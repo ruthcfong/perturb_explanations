@@ -17,4 +17,4 @@ norm_score = False
 end_layer = 'prob'
 use_conv_norm = False
 blur_mask = 5
-mask_scale = 8 
+mask_scale = 8

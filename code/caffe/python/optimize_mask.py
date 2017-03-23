@@ -11,59 +11,78 @@ from PIL import ImageFilter, Image
 from helpers import *
 from defaults import caffe_dir
 
-def generate_learned_mask(net, path, label, given_gradient = False, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
+def generate_learned_mask(net, path, label, given_gradient = True, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
         l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
         jitter = 4, noise = 0, null_type = 'blur', gpu = None, start_layer = 'data', end_layer = 'prob', 
         plot_step = None, debug = False, fig_path = None, mask_path = None, verbose = False, show_fig = True, mask_init_type = 'circle', num_top = 0, 
         labels = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')):
-        
-        if mask_path is not None and os.path.exists(mask_path):
-            print "%s already exists; cancel if you don't want to overwrite it" % mask_path
-        start = time.time()
-        net_transformer = get_ILSVRC_net_transformer(net)
+    ''' 
+    num_iters = 300
+    lr = 1e-1
+    l1_lambda = 1e-4
+    l1_ideal = 1
+    l1_lambda_2 = 0
+    tv_lambda = 1e-2
+    tv_beta = 3
+    jitter = 4
+    num_top = 0
+    noise = 0
+    null_type = 'blur'
+    given_gradient = True
+    norm_score = False
+    end_layer = 'prob'
+    use_conv_norm = False
+    blur_mask = 5
+    mask_scale = 8
+    '''
 
-        img = net_transformer.preprocess('data', caffe.io.load_image(path))
-        net.blobs['data'].data[...] = img
-        net.forward()
-        scores = np.squeeze(net.blobs['prob'].data)
-        sorted_idx = np.argsort(scores)
-        if given_gradient:
-            target = np.zeros(scores.shape)
-            if num_top == 0:
-                target[label] = 1
-            else:
-                target[sorted_idx[:-(num_top+1):-1]] = 1
+    if mask_path is not None and os.path.exists(mask_path):
+        print "%s already exists; cancel if you don't want to overwrite it" % mask_path
+    start = time.time()
+    net_transformer = get_ILSVRC_net_transformer(net)
+
+    img = net_transformer.preprocess('data', caffe.io.load_image(path))
+    net.blobs['data'].data[...] = img
+    net.forward()
+    scores = np.squeeze(net.blobs['prob'].data)
+    sorted_idx = np.argsort(scores)
+    if given_gradient:
+        target = np.zeros(scores.shape)
+        if num_top == 0:
+            target[label] = 1
         else:
-            if num_top == 0:
-                target = np.array([label])
-            else:
-                target = sorted_idx[:-(num_top+1):-1]
-
-        if mask_init_type == 'circle':
-            mask_radius = test_circular_masks(net, path, label, plot = False)
-            mask_init = 1-create_blurred_circular_mask((net.blobs['data'].data.shape[2], net.blobs['data'].data.shape[3]),
-                                             mask_radius, center = None, sigma = 10)
-        elif mask_init_type == None:
-            mask_init = None
-
-        if show_fig:
-           plt.ion() 
+            target[sorted_idx[:-(num_top+1):-1]] = 1
+    else:
+        if num_top == 0:
+            target = np.array([label])
         else:
-            plt.ioff()
+            target = sorted_idx[:-(num_top+1):-1]
 
-        mask = optimize_mask(net, path, target, labels = labels, given_gradient = given_gradient, norm_score = norm_score,
-                            num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal,
-                            l1_lambda_2 = l1_lambda_2, tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale,
-                            use_conv_norm= use_conv_norm, blur_mask = blur_mask, jitter = jitter,
-                            null_type = null_type, mask_init = mask_init, gpu = gpu, start_layer = None, end_layer = end_layer,
-                            plot_step = plot_step, debug = debug, fig_path = fig_path, mask_path = mask_path, verbose = verbose)
+    if mask_init_type == 'circle':
+        mask_radius = test_circular_masks(net, path, label, plot = False)
+        mask_init = 1-create_blurred_circular_mask((net.blobs['data'].data.shape[2], net.blobs['data'].data.shape[3]),
+                                         mask_radius, center = None, sigma = 10)
+    elif mask_init_type == None:
+        mask_init = None
 
-        plt.ion()
-        end = time.time()
-        if verbose:
-            print 'Time elapsed:', (end-start)
-        #plt.close()
-        return mask
+    if show_fig:
+       plt.ion() 
+    else:
+        plt.ioff()
+
+    mask = optimize_mask(net, path, target, labels = labels, given_gradient = given_gradient, norm_score = norm_score,
+                        num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal,
+                        l1_lambda_2 = l1_lambda_2, tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale,
+                        use_conv_norm= use_conv_norm, blur_mask = blur_mask, jitter = jitter,
+                        null_type = null_type, mask_init = mask_init, gpu = gpu, start_layer = None, end_layer = end_layer,
+                        plot_step = plot_step, debug = debug, fig_path = fig_path, mask_path = mask_path, verbose = verbose)
+
+    plt.ion()
+    end = time.time()
+    if verbose:
+        print 'Time elapsed:', (end-start)
+    #plt.close()
+    return mask
 
 def optimize_mask(net, path, target, labels, given_gradient = False, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
                   l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
