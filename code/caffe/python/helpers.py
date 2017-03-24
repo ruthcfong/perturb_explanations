@@ -16,9 +16,9 @@ def create_heldout_annotated_dir(old_ann_dir, new_heldout_ann_dir, imdb='../../.
         new_ann_file = os.path.join(new_heldout_ann_dir, '%.6d.xml' % i)
         copyfile(old_ann_file, new_ann_file)
 
-def write_imdb(split_dir, gt_file, out_file):   
+def write_imdb(split_dir, gt_file, out_file, idx_file = None):   
     '''
-    write_imdb('/data/datasets/ILSVRC2012/images/train', '/home/ruthfong/packages/caffe/data/ilsvrc12/train.txt', '/home/ruthfong/packages/caffe/data/ilsvrc12/train_imdb.txt')
+    write_imdb('/data/datasets/ILSVRC2012/images/train', '../../../data/ilsvrc12/annotated_train_heldout.txt', '../../../data/ilsvrc12/annotated_train_heldout_imdb.txt')
     '''
     f = open(gt_file)
     rel_paths = []
