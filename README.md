@@ -7,7 +7,7 @@ Ruth Fong and Andrea Vedaldi
 3. [Download](http://image-net.org/download) ImageNet images and create imdb files for train heldout and val by running the following in a python shell after `cd code/caffe/python`: 
     ```
     from helpers import write_imdb
-    write_imdb($ILSVRC_DATASET/train, $CAFFEDIR/data/ilsvrc12/train, '../../../data/ilsvrc12/annotated_train_heldout_imdb.txt', idx_file = '../../../data/ilsvrc12/annotated_train_heldout_idx.txt')
+    write_imdb($ILSVRC_DATASET/train, '../../../data/ilsvrc12/annotated_train_heldout.txt', '../../../data/ilsvrc12/annotated_train_heldout_imdb.txt')
     write_imdb($ILSVRC_DATASET/val, $CAFFEDIR/data/ilsvrc12/val, '../../../data/ilsvrc12/val_imdb.txt')
     ```
 4. Include your local copy of the above repo in your python path by running `export PYTHONPATH=$PYTHONPATH:$CAFFEDIR` (or including it in your .bash_profile or .bashrc)
