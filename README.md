@@ -4,11 +4,17 @@ Ruth Fong and Andrea Vedaldi
 ## Instructions
 1. Install Jianming Zhang's [version of Caffe](https://github.com/jimmie33/Caffe-ExcitationBP), which includes implementations for the gradient, guided backprop, and excitation backprop saliency methods.
 2. Add models from [Caffe's Model Zoo](https://github.com/BVLC/caffe/wiki/Model-Zoo) (recommended: [bvlc_googlenet](https://github.com/BVLC/caffe/tree/master/models/bvlc_googlenet), [vgg16](https://gist.github.com/ksimonyan/211839e770f7b538e2d8#file-readme-md), [bvlc_reference_caffenet](https://github.com/BVLC/caffe/tree/master/models/bvlc_reference_caffenet)), add `force_backward: true` to each model's deploy .prototxt, and edit paths to the models in [defaults.py](code/caffe/python/defaults.py).
-2. Include your local copy of the above repo in your python path by running `export PYTHONPATH=$PYTHONPATH:$CAFFEDIR` (or including it in your .bash_profile or .bashrc)
-3. Run `sh $CAFFEDIR/data/ilsvrc12/get_ilsvrc_aux.sh` to download ILSVRC support files.
-4. Change `caffe_dir` to $CAFFEDIR in [defaults.py](code/caffe/python/defaults.py).
-3. (Optional but quite useful) Download ImageNet Annotations: [http://image-net.org/Annotation/Annotation.tar.gz](http://image-net.org/Annotation/Annotation.tar.gz) (found [here](http://image-net.org/download-bboxes))
-4. (Optional, for animal parts experiment only) Download animal parts annotations from [here](http://www.robots.ox.ac.uk/~vgg/data/animal_parts)
+3. [Download](http://image-net.org/download) ImageNet images and create imdb files for train heldout and val by running the following in a python shell after `cd code/caffe/python`: 
+    ```
+    from helpers import write_imdb
+    write_imdb($ILSVRC_DATASET/train, '../../../data/ilsvrc12/annotated_train_heldout.txt', '../../../data/ilsvrc12/annotated_train_heldout_imdb.txt')
+    write_imdb($ILSVRC_DATASET/val, $CAFFEDIR/data/ilsvrc12/val, '../../../data/ilsvrc12/val_imdb.txt')
+    ```
+4. Include your local copy of the above repo in your python path by running `export PYTHONPATH=$PYTHONPATH:$CAFFEDIR` (or including it in your .bash_profile or .bashrc)
+5. Run `sh $CAFFEDIR/data/ilsvrc12/get_ilsvrc_aux.sh` to download ILSVRC support files.
+6. Change `caffe_dir` to $CAFFEDIR in [defaults.py](code/caffe/python/defaults.py).
+7. (Optional but quite useful) Download ImageNet Annotations: [http://image-net.org/Annotation/Annotation.tar.gz](http://image-net.org/Annotation/Annotation.tar.gz) (found [here](http://image-net.org/download-bboxes))
+8. (Optional, for animal parts experiment only) Download animal parts annotations from [here](http://www.robots.ox.ac.uk/~vgg/data/animal_parts)
 
 ## Usage
 All pycaffe files are in [code/caffe/python](code/caffe/python). Public support for matconvnet will come soon (see dev branch for some experimental code).
