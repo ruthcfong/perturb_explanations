@@ -1,4 +1,10 @@
+# TODO change
 caffe_dir = '/home/ruthfong/sample_code/Caffe-ExcitationBP/'
+alexnet_prototxt = '/home/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
+alexnet_model = '/home/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
+googlenet_prototxt = '/home/ruthfong/packages/caffe/models/bvlc_googlenet/deploy_force_backward.prototxt'
+googlenet_model = '/home/ruthfong/packages/caffe/models/bvlc_googlenet/bvlc_googlenet.caffemodel'
+
 
 # default hyperparameters for optimize_mask.py
 num_iters = 300

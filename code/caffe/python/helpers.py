@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 import os
 from shutil import copyfile
 
+from defaults import caffe_dir, alexnet_prototxt, alexnet_model, googlenet_prototxt, googlenet_model
+
 def create_heldout_annotated_dir(old_ann_dir, new_heldout_ann_dir, imdb='../../../data/ilsvrc12/annotated_train_heldout_imdb.txt'):
     (paths, _) = read_imdb(imdb)
     if not os.path.exists(new_heldout_ann_dir):
@@ -159,13 +161,9 @@ def create_animal_parts_imdb(out_file = None, foot_num_file = None, eye_num_file
 
 def get_net(net_type):
     if net_type == 'alexnet':
-        net = caffe.Net('/home/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt',
-                        '/home/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel',
-                        caffe.TEST)
+        net = caffe.Net(alexnet_prototxt, alexnet_model, caffe.TEST)
     elif net_type == 'googlenet':
-        net = caffe.Net('/home/ruthfong/packages/caffe/models/bvlc_googlenet/deploy_force_backward.prototxt',
-                        '/home/ruthfong/packages/caffe/models/bvlc_googlenet/bvlc_googlenet.caffemodel',
-                        caffe.TEST)
+        net = caffe.Net(googlenet_prototxt, googlenet_model, caffe.TEST)
     else:
         assert(False)
    
@@ -174,7 +172,7 @@ def get_net(net_type):
     return net
 
 def get_ILSVRC_mean(print_mean = False):
-    mu = np.load('/home/ruthfong/packages/caffe/python/caffe/imagenet/ilsvrc_2012_mean.npy')
+    mu = np.load(os.path.join(caffe_dir, 'python/caffe/imagenet/ilsvrc_2012_mean.npy'))
     mu = mu.mean(1).mean(1)
     if print_mean:
         print 'mean-subtracted values:', zip('BGR', mu)
@@ -270,8 +268,8 @@ def compute_overlap(bb, objs, label):
             ov_vector.append(ov)
     return ov_vector
 
-def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'),
-                                 reverse_indexing=np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_order_to_ascii_order.txt', dtype=int)):
+def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synsets.txt'), 
+    str, delimiter='\t'), reverse_indexing=np.loadtxt('../../../data/ilsvrc12/synset_order_to_ascii_order.txt', dtype=int)):
     if verbose:
         print 'Loading bounding boxes from', bb_file
     bb_data = np.loadtxt(bb_file)
@@ -284,7 +282,7 @@ def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.l
 
     blacklist = np.zeros(num_examples)
     if num_examples == 50000:
-        blacklist_idx = np.loadtxt('/data/ruthfong/ILSVRC2012/ILSVRC2014_devkit/data/ILSVRC2014_clsloc_validation_blacklist.txt', dtype=int) - 1
+        blacklist_idx = np.loadtxt('../../../data/ilsvrc12/ILSVRC2014_clsloc_validation_blacklist.txt', dtype=int) - 1
         blacklist[blacklist_idx] = 1
 
     res = np.zeros(num_examples, dtype=int)
@@ -304,13 +302,13 @@ def compute_localization_results(bb_file, ann_paths, verbose=False, synsets=np.l
         print 'Localization Accuracy:', acc
     return (acc, 1-res, overlap)
 
-def find_labels(phrase, labels_desc = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_words.txt', str, delimiter='\t')):
+def find_labels(phrase, labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')):
     indicator = [phrase in label for label in labels_desc]
     try:
         return np.where(indicator)[0]
     except:
         return None
     
-def get_short_class_name(label_i, labels_desc = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synset_words.txt', str, delimiter='\t')
+def get_short_class_name(label_i, labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
 ):
     return ' '.join(labels_desc[label_i].split(',')[0].split()[1:])

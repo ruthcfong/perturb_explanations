@@ -721,6 +721,7 @@ def main(argv):
         end_layer = 'prob'
         use_conv_norm = False
         blur_mask = 5
+        mask_scale = 8
 
     net = get_net(net_type)
     net_transformer = get_ILSVRC_net_transformer(net)
