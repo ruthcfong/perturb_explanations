@@ -4,7 +4,7 @@ Ruth Fong and Andrea Vedaldi
 ## Instructions
 1. Install Jianming Zhang's [version of Caffe](https://github.com/jimmie33/Caffe-ExcitationBP), which includes implementations for the gradient, guided backprop, and excitation backprop saliency methods.
 2. Add models from [Caffe's Model Zoo](https://github.com/BVLC/caffe/wiki/Model-Zoo) (recommended: [bvlc_googlenet](https://github.com/BVLC/caffe/tree/master/models/bvlc_googlenet), [vgg16](https://gist.github.com/ksimonyan/211839e770f7b538e2d8#file-readme-md), [bvlc_reference_caffenet](https://github.com/BVLC/caffe/tree/master/models/bvlc_reference_caffenet)), add `force_backward: true` to each model's deploy .prototxt, and edit paths to the models in [defaults.py](code/caffe/python/defaults.py).
-3. [Download](http://image-net.org/download) ImageNet images and create imdb files for train heldout and val by running the following in a python shell: 
+3. [Download](http://image-net.org/download) ImageNet images and create imdb files for train heldout and val by running the following in a python shell after `cd code/caffe/python`: 
     ```
     from helpers import write_imdb
     write_imdb($ILSVRC_DATASET/train, $CAFFEDIR/data/ilsvrc12/train, '../../../data/ilsvrc12/annotated_train_heldout_imdb.txt', idx_file = '../../../data/ilsvrc12/annotated_train_heldout_idx.txt')
