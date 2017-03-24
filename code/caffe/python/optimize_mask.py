@@ -646,6 +646,7 @@ def main(argv):
     parser.add_argument('-f', '--fig_dir', default=None)
     parser.add_argument('-m', '--mask_dir', default=None)
     parser.add_argument('--show_fig', action='store_true')
+    parser.add_argument('--loc_params', action='store_true', help="use localization hyperparameters (i.e. min top5, lambda1 = 1e-3, beta = 2)")
 
     #gpu = 0 
     #net_type = 'googlenet'
@@ -660,6 +661,7 @@ def main(argv):
     fig_dir = args.fig_dir
     mask_dir = args.mask_dir
     show_fig = args.show_fig
+    loc_params = args.loc_params
 
     if gpu is not None:
         caffe.set_device(gpu)
@@ -678,50 +680,47 @@ def main(argv):
     
     labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
 
-    from defaults import (num_iters, lr, l1_lambda, l1_ideal, l1_lambda_2, tv_lambda, tv_beta, jitter, num_top, noise, null_type, 
+    if not loc_params:
+        from defaults import (num_iters, lr, l1_lambda, l1_ideal, l1_lambda_2, tv_lambda, tv_beta, jitter, num_top, noise, null_type, 
             given_gradient, norm_score, end_layer, use_conv_norm, blur_mask, mask_scale)
-    '''
-    # default parameters
-    num_iters = 300
-    lr = 1e-1
-    l1_lambda = 1e-4
-    l1_ideal = 1
-    l1_lambda_2 = 0
-    tv_lambda = 1e-2
-    tv_beta = 3
-    jitter = 4
-    num_top = 0
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 5
-    mask_scale = 8
-    '''
-    
-
-    '''
-    # localization parameters
-    num_iters = 300
-    lr = 1e-1
-    l1_lambda = 1e-3
-    l1_ideal = 1
-    l1_lambda_2 = 0
-    tv_lambda = 1e-2
-    tv_beta = 2
-    jitter = 4
-    num_top = 5
-    noise = 0
-    null_type = 'blur'
-    given_gradient = True
-    norm_score = False
-    end_layer = 'prob'
-    use_conv_norm = False
-    blur_mask = 5
-    mask_scale = 8
-    '''
+        '''
+        # default parameters
+        num_iters = 300
+        lr = 1e-1
+        l1_lambda = 1e-4
+        l1_ideal = 1
+        l1_lambda_2 = 0
+        tv_lambda = 1e-2
+        tv_beta = 3
+        jitter = 4
+        num_top = 0
+        noise = 0
+        null_type = 'blur'
+        given_gradient = True
+        norm_score = False
+        end_layer = 'prob'
+        use_conv_norm = False
+        blur_mask = 5
+        mask_scale = 8
+        '''
+    else:
+        # localization parameters
+        num_iters = 300
+        lr = 1e-1
+        l1_lambda = 1e-3
+        l1_ideal = 1
+        l1_lambda_2 = 0
+        tv_lambda = 1e-2
+        tv_beta = 2
+        jitter = 4
+        num_top = 5
+        noise = 0
+        null_type = 'blur'
+        given_gradient = True
+        norm_score = False
+        end_layer = 'prob'
+        use_conv_norm = False
+        blur_mask = 5
 
     net = get_net(net_type)
     net_transformer = get_ILSVRC_net_transformer(net)
@@ -739,11 +738,11 @@ def main(argv):
 
         start = time.time()
         
-        generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig)
-        #generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
-        #        num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, 
-        #        tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask,
-        #        jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top)
+        #generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig)
+        generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
+                num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, 
+                tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask,
+                jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top)
 
         end = time.time()
         print 'Time elapsed:', (end-start)
