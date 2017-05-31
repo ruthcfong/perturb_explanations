@@ -55,8 +55,8 @@ def create_animal_parts_imdb(out_file = None, foot_num_file = None, eye_num_file
                              animal_parts_ann_dir = '/data/ruthfong/ILSVRC2012/animal_parts_dataset/xml/foot',
                              train_img_dir = '/data/datasets/ILSVRC2012/images/train',
                              val_img_dir = '/data/ruthfong/ILSVRC2012/images/val', 
-                             val_imdb_path = '/home/ruthfong/packages/caffe/data/ilsvrc12/val_imdb.txt', 
-                             synsets = np.loadtxt('/home/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'),
+                             val_imdb_path = '/users/ruthfong/packages/caffe/data/ilsvrc12/val_imdb.txt', 
+                             synsets = np.loadtxt('/users/ruthfong/packages/caffe/data/ilsvrc12/synsets.txt', str, delimiter='\t'),
                              foot_dir = '/data/ruthfong/ILSVRC2012/animal_parts_dataset/xml/foot',
                              eye_dir = '/data/ruthfong/ILSVRC2012/animal_parts_dataset/xml/eye'):
     animal_parts_ann_paths = os.listdir(animal_parts_ann_dir)
