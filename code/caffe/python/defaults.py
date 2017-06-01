@@ -11,6 +11,9 @@ voc_dir = '/users/ruthfong/sample_code/Caffe-ExcitationBP/models/finetune_google
 googlenet_voc_prototxt = os.path.join(voc_dir, 'deploy_force_backward.prototxt')
 googlenet_voc_model = '/data/ruthfong/VOCdevkit/VOC2007/caffe/snapshots/finetune_googlenet_voc_pascal_iter_5000.caffemodel'
 
+googlenet_coco_prototxt = os.path.join(caffe_dir, 'models/COCO/deploy_force_backward.prototxt')
+googlenet_coco_model = os.path.join(caffe_dir, 'models/COCO/GoogleNetCOCO.caffemodel')
+
 voc_labels_desc = ['aeroplane','bicycle','bird','boat','bottle','bus','car','cat','chair','cow','diningtable','dog','horse','motorbike','person','pottedplant','sheep','sofa','train','tvmonitor']
 # default hyperparameters for optimize_mask.py
 num_iters = 300

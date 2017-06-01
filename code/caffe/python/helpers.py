@@ -4,7 +4,8 @@ from bs4 import BeautifulSoup
 import os
 from shutil import copyfile
 
-from defaults import caffe_dir, alexnet_prototxt, alexnet_model, googlenet_prototxt, googlenet_model, googlenet_voc_prototxt, googlenet_voc_model
+from defaults import (caffe_dir, alexnet_prototxt, alexnet_model, googlenet_prototxt, googlenet_model, googlenet_voc_prototxt, googlenet_voc_model, 
+    googlenet_coco_prototxt, googlenet_coco_model)
 
 def create_heldout_annotated_dir(old_ann_dir, new_heldout_ann_dir, imdb='../../../data/ilsvrc12/annotated_train_heldout_imdb.txt'):
     (paths, _) = read_imdb(imdb)
@@ -166,6 +167,8 @@ def get_net(net_type):
         net = caffe.Net(googlenet_prototxt, googlenet_model, caffe.TEST)
     elif net_type == 'googlenet_voc':
         net = caffe.Net(googlenet_voc_prototxt, googlenet_voc_model, caffe.TEST)
+    elif net_type == 'googlenet_coco':
+        net = caffe.Net(googlenet_coco_prototxt, googlenet_coco_model, caffe.TEST)	
     else:
         assert(False)
    
@@ -201,6 +204,14 @@ def get_VOC_net_transformer(net):
     transformer.set_mean('data', mu)
     transformer.set_raw_scale('data', 255)
     transformer.set_channel_swap('data', (2,1,0))
+    return transformer
+
+def get_COCO_net_transformer(net):
+    transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+    transformer.set_mean('data', np.array([103.939, 116.779, 123.68]))
+    transformer.set_transpose('data', (2,0,1))
+    transformer.set_channel_swap('data', (2,1,0))
+    transformer.set_raw_scale('data', 255.0)
     return transformer
 
 def get_ILSVRC_net_transformer_with_shape(shape):
