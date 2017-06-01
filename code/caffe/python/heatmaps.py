@@ -168,7 +168,7 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
                     outputBlobName = 'data', outputLayerName = 'data', secondTopBlobName = 'pool5/7x7_s1', 
                     secondTopLayerName = 'pool5/7x7_s1', norm_deg = np.inf, gpu = None):
     if gpu == None:
-        if heatmap_type == 'saliency':
+        if heatmap_type == 'saliency' or heatmap_type == 'grad_cam':
             caffe.set_mode_cpu()
         elif heatmap_type == 'guided_backprop':
             caffe.set_mode_dc_cpu()
@@ -215,9 +215,7 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
         for i in range(num_imgs):
             net.blobs[topBlobName].diff[i][...] = 0
             net.blobs[topBlobName].diff[i][labels[i]] = 1
-    if heatmap_type != 'contrast_excitation_backprop':
-        net.backward(start = topLayerName, end = outputLayerName)
-    else:
+    if heatmap_type == 'contrast_excitation_backprop':
         # invert top layer weights
         net.params[topLayerName][0].data[...] *= -1
         out = net.backward(start = topLayerName, end = secondTopLayerName)
@@ -230,6 +228,15 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
         # compute the contrastive signal
         net.blobs[secondTopBlobName].diff[...] -= buff
         net.backward(start = secondTopLayerName, end = outputLayerName)
+    elif heatmap_type == 'grad_cam':
+        net.backward(start = topLayerName, end = outputLayerName)
+        activations = net.blobs[outputBlobName].data.copy() # TODO: check if copy is needed
+        gradient = net.blobs[outputBlobName].diff.copy()
+        alphas = np.mean(np.mean(gradient,3),2)
+        result = np.maximum(np.sum(activations * np.broadcast_to(alphas, activations.shape), 1), 0)
+        net.blobs[outputBlobName].diff = result
+    else:
+        net.backward(start = topLayerName, end = outputLayerName)
     
     if np.isinf(norm_deg):
         if norm_deg == np.inf:
