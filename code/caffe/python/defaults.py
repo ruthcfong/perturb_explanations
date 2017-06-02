@@ -2,8 +2,10 @@ import os
 
 # TODO change
 caffe_dir = '/users/ruthfong/sample_code/Caffe-ExcitationBP/'
-alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
-alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
+alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_alexnet/deploy_force_backward.prototxt'
+alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_alexnet/bvlc_alexnet.caffemodel'
+#alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
+#alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
 vgg16_prototxt = '/users/ruthfong/packages/caffe/models/vgg16/VGG_ILSVRC_16_layers_deploy_force_backward.prototxt'
 vgg16_model = '/users/ruthfong/packages/caffe/models/vgg16/VGG_ILSVRC_16_layers.caffemodel'
 googlenet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_googlenet/deploy_force_backward.prototxt'
