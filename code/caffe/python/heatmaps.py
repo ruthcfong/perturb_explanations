@@ -179,7 +179,7 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
             return
     else:
         caffe.set_device(gpu)
-        if heatmap_type == 'saliency':
+        if heatmap_type == 'saliency' or heatmap_type == 'grad_cam':
             caffe.set_mode_gpu()
         elif heatmap_type == 'guided_backprop':
             caffe.set_mode_dc_gpu()
