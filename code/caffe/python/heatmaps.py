@@ -230,9 +230,9 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
         net.backward(start = secondTopLayerName, end = outputLayerName)
     elif heatmap_type == 'grad_cam':
         net.backward(start = topLayerName, end = outputLayerName)
-        activations = np.maximum(net.blobs[outputBlobName].data.copy(), 0) # TODO: check if copy is needed
+        activations = net.blobs[outputBlobName].data.copy() # TODO: check if copy is needed
         gradient = net.blobs[outputBlobName].diff.copy()
-        alphas = np.mean(np.mean(gradient,3),2)
+        alphas = np.mean(gradient,(2,3))
         attMaps = np.squeeze(np.maximum(np.sum(activations * np.broadcast_to(
             np.expand_dims(np.expand_dims(alphas, 2),3), activations.shape), 1), 0))
         return attMaps
