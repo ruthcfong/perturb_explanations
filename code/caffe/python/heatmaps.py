@@ -233,7 +233,8 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
         activations = net.blobs[outputBlobName].data.copy() # TODO: check if copy is needed
         gradient = net.blobs[outputBlobName].diff.copy()
         alphas = np.mean(np.mean(gradient,3),2)
-        attMaps = np.maximum(np.sum(activations * np.broadcast_to(alphas, activations.shape), 1), 0)
+        print activations.shape, gradient.shape, alphas.shape
+        attMaps = np.squeeze(np.maximum(np.sum(activations * np.broadcast_to(alphas, activations.shape), 1), 0))
         return attMaps
     else:
         net.backward(start = topLayerName, end = outputLayerName)
