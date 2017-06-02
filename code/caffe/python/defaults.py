@@ -1,11 +1,13 @@
 import os
 
 # TODO change
-caffe_dir = '/home/ruthfong/sample_code/Caffe-ExcitationBP/'
-alexnet_prototxt = '/home/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
-alexnet_model = '/home/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
-googlenet_prototxt = '/home/ruthfong/packages/caffe/models/bvlc_googlenet/deploy_force_backward.prototxt'
-googlenet_model = '/home/ruthfong/packages/caffe/models/bvlc_googlenet/bvlc_googlenet.caffemodel'
+caffe_dir = '/users/ruthfong/sample_code/Caffe-ExcitationBP/'
+alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
+alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
+vgg16_prototxt = '/users/ruthfong/packages/caffe/models/vgg16/VGG_ILSVRC_16_layers_deploy_force_backward.prototxt'
+vgg16_model = '/users/ruthfong/packages/caffe/models/vgg16/VGG_ILSVRC_16_layers.caffemodel'
+googlenet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_googlenet/deploy_force_backward.prototxt'
+googlenet_model = '/users/ruthfong/packages/caffe/models/bvlc_googlenet/bvlc_googlenet.caffemodel'
 
 voc_dir = '/users/ruthfong/sample_code/Caffe-ExcitationBP/models/finetune_googlenet_voc_pascal'
 googlenet_voc_prototxt = os.path.join(voc_dir, 'deploy_force_backward.prototxt')

@@ -5,7 +5,7 @@ import os
 from shutil import copyfile
 
 from defaults import (caffe_dir, alexnet_prototxt, alexnet_model, googlenet_prototxt, googlenet_model, googlenet_voc_prototxt, googlenet_voc_model, 
-    googlenet_coco_prototxt, googlenet_coco_model)
+    googlenet_coco_prototxt, googlenet_coco_model, vgg16_prototxt, vgg16_model)
 
 def create_heldout_annotated_dir(old_ann_dir, new_heldout_ann_dir, imdb='../../../data/ilsvrc12/annotated_train_heldout_imdb.txt'):
     (paths, _) = read_imdb(imdb)
@@ -163,6 +163,8 @@ def create_animal_parts_imdb(out_file = None, foot_num_file = None, eye_num_file
 def get_net(net_type):
     if net_type == 'alexnet':
         net = caffe.Net(alexnet_prototxt, alexnet_model, caffe.TEST)
+    elif net_type == 'vgg16':
+        net = caffe.Net(vgg16_prototxt, vgg16_model, caffe.TEST)
     elif net_type == 'googlenet':
         net = caffe.Net(googlenet_prototxt, googlenet_model, caffe.TEST)
     elif net_type == 'googlenet_voc':
