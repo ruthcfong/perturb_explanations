@@ -1,11 +1,16 @@
 import caffe
 
-net_type = 'vgg16'
-gpu = 0
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.misc import imresize
+
+import os
 
 caffe_dir = '/users/ruthfong/sample_code/Caffe-ExcitationBP/'
-alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
-alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
+alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_alexnet/deploy_force_backward.prototxt'
+alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_alexnet/bvlc_alexnet.caffemodel'
+#alexnet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/deploy_force_backward.prototxt'
+#alexnet_model = '/users/ruthfong/packages/caffe/models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel'
 vgg16_prototxt = '/users/ruthfong/packages/caffe/models/vgg16/VGG_ILSVRC_16_layers_deploy_force_backward.prototxt'
 vgg16_model = '/users/ruthfong/packages/caffe/models/vgg16/VGG_ILSVRC_16_layers.caffemodel'
 googlenet_prototxt = '/users/ruthfong/packages/caffe/models/bvlc_googlenet/deploy_force_backward.prototxt'
@@ -51,6 +56,8 @@ def get_grad_cam(net, transformer, path, label, top_layer, bottom_layer, show_fi
 		ax.set_title('%s: %s %s (%s)' % (labels_desc[label], top_layer, bottom_layer, net_type))
 		plt.show()
 
+        return heatmap
+
 def get_net(net_type):
     if net_type == 'alexnet':
         net = caffe.Net(alexnet_prototxt, alexnet_model, caffe.TEST)
@@ -65,7 +72,7 @@ def get_net(net_type):
     net.blobs['data'].reshape(1,3,net_shape[2],net_shape[3])
     return net
 
- def get_ILSVRC_mean(print_mean = False):
+def get_ILSVRC_mean(print_mean = False):
     mu = np.load(os.path.join(caffe_dir, 'python/caffe/imagenet/ilsvrc_2012_mean.npy'))
     mu = mu.mean(1).mean(1)
     if print_mean:
@@ -92,17 +99,12 @@ def main():
 		caffe.set_device(gpu)
 		caffe.set_mode_gpu()
 
-	if net_type == 'alexnet':
-	    net = alexnet
-	elif net_type == 'vgg16':
-	    net = vgg_net
-	elif net_type == 'googlenet':
-	    net = googlnet
-
+        net = get_net(net_type)
 	transformer = get_ILSVRC_net_transformer(net)
 
 	path = '../../../images/COCO_train2014_000000114269.jpg'
 	label = 282 # tiger cat
+        img = transformer.preprocess('data', caffe.io.load_image(path))
 
 	if net_type == 'vgg16':
 	    f, ax = plt.subplots(2,7)
@@ -113,21 +115,23 @@ def main():
 	else:
 		assert(False)
 
-	for i in range(len(bottom_names)+1):
+	for i in range(len(bottom_layers)+1):
 	    curr_ax = ax[i/7][i%7] if net_type == 'vgg16' else ax[i]
 	    curr_ax.set_xticks([])
 	    curr_ax.set_yticks([])
 	    curr_ax.imshow(transformer.deprocess('data', img))
 	    
 	    if i == 0:
-	        curr_ax.set_title('%s %s' % (net_type, top_name))
+	        curr_ax.set_title('%s %s' % (net_type, top_layer))
 	        continue
 	        
-	    bottom_name = bottom_names[i-1]
+	    bottom_layer = bottom_layers[i-1]
 	    heatmap = get_grad_cam(net, transformer, path, label, top_layer, bottom_layer, show_fig = False)	    
+            print heatmap.shape, img.shape
 	    curr_ax.imshow(imresize(heatmap, img.shape[1:]), alpha = 0.75, cmap = 'jet')
 	    #f.colorbar(cax)
-	    curr_ax.set_title('%s' % bottom_name)
+	    curr_ax.set_title('%s' % bottom_layer)
 	plt.show()
 
-
+if __name__ == '__main__':
+    main()
