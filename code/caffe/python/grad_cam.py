@@ -92,8 +92,6 @@ def main():
 	gpu = 0
 	net_type = 'vgg16'
 	top_layer = 'prob'
-	bottom_layers = ['conv5_3','conv5_2','conv5_1', 'conv4_3','conv4_2', 'conv4_1', 'conv3_3', 'conv3_2', 'conv3_1',
-                'conv2_2', 'conv2_1','conv1_2', 'conv1_1']
 
 	if gpu is not None:
 		caffe.set_device(gpu)
@@ -107,9 +105,12 @@ def main():
         img = transformer.preprocess('data', caffe.io.load_image(path))
 
 	if net_type == 'vgg16':
+		bottom_layers = ['conv5_3','conv5_2','conv5_1', 'conv4_3','conv4_2', 'conv4_1', 'conv3_3', 'conv3_2', 'conv3_1',
+            'conv2_2', 'conv2_1','conv1_2', 'conv1_1']
 	    f, ax = plt.subplots(2,7)
 	    f.set_size_inches(14,6)
 	elif net_type == 'alexnet':
+		bottom_layers = ['conv5', 'conv4', 'conv3', 'conv2', 'conv1']
 	    f, ax = plt.subplots(1,6)
 	    f.set_size_inches(12,4)
 	else:
