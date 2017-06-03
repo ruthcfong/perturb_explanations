@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import transform, filters
-import sys, time, argparse
+import sys, time, argparse, os
 import shapely.geometry
 import coco_util as util
 
@@ -16,8 +16,10 @@ import pycocotools.mask as mask
 #caffe_root = '..'
 #sys.path.insert(0, caffe_root + '/python')
 import caffe
+caffe_root = '/users/ruthfong/sample_code/Caffe-ExcitationBP'
 
-from helpers import get_COCO_net_transformer
+from helpers import get_COCO_net_transformer, get_net
+from heatmaps import compute_heatmap
 
 # PARAMS
 tags, tag2ID = util.loadTags(caffe_root + '/models/COCO/catName.txt')
@@ -32,14 +34,14 @@ outputBlobName = 'pool2/3x3_s2'
 def parseArgs():
     """Parse input arguments."""
     parser = argparse.ArgumentParser(description='Excitation Backprop')
-    parser.add_argument('-g', '--gpu', dest='gpu_id', help='GPU device ID to use [0]',
+    parser.add_argument('-g', '--gpu', dest='gpu', help='GPU device ID to use [0]',
                         default=0, type=int)
     parser.add_argument('-s', '--saliency', default='saliency', type=str, 
         help="saliency heatmap method ['center', 'saliency', 'guided_backprop', 'excitation_backprop', 'contrast_excitation_backprop']")
     args = parser.parse_args()
     return args
 
-'''
+
 # CAFFE
 def initCaffe(args):
     caffe.set_mode_gpu()
@@ -53,6 +55,8 @@ def doExcitationBackprop(net, img, tagName):
     # load image, rescale
     minDim = min(img.shape[:2])
     newSize = (int(img.shape[0]*imgScale/float(minDim)), int(img.shape[1]*imgScale/float(minDim)))
+    #print newSize
+    #newSize = (224,224)
     imgS = transform.resize(img, newSize)
 
     # reshape net
@@ -92,9 +96,10 @@ def doExcitationBackprop(net, img, tagName):
     attMap = np.maximum(net.blobs[outputBlobName].diff[0].sum(0), 0)
 
     # resize back to original image size
-    attMap = transform.resize(attMap, (img.shape[:2]), order = 3, mode = 'nearest')
+    #attMap = transform.resize(attMap, (img.shape[:2]), order = 3, mode = 'nearest')
     return attMap
-'''
+
+
 
 def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, topName = 'loss3/classifier', 
     bottomName = 'data', normDeg = np.inf, naiveMax = True, gpu = None):
@@ -112,14 +117,17 @@ def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, t
         imgName = os.path.join(imgDir, I['file_name'])
         img     = caffe.io.load_image(imgName)
         if heatmapType != 'center':
-            #attMap  = doExcitationBackprop(caffeNet, img, cat['name'])
-            attMap = compute_heatmap(net = caffeNet, transformer = transformer, paths = imgName, labels = cat['id'],
-                               heatmap_type = heatmapType, topBlobName = topName, topLayerName = topName,
-                               outputBlobName = bottomName, outputLayerName = bottomName, norm_deg = normDeg,
-                               gpu = gpu)
+            #if heatmapType == 'contrast_excitation_backprop':
+            #    attMap  = doExcitationBackprop(caffeNet, img, cat['name'])
+            #else:
+            #print norm_deg
+            attMap = compute_heatmap(net = caffeNet, transformer = transformer, paths = imgName, labels = cat['id']-1,
+                           heatmap_type = heatmapType, topBlobName = topName, topLayerName = topName,
+                           outputBlobName = bottomName, outputLayerName = bottomName, norm_deg = normDeg,
+                           gpu = gpu)
 
             # reshape to original image
-            attMap = = transform.resize(attMap, (img.shape[:2]), order = 3, mode = 'nearest')
+            attMap = transform.resize(attMap, (img.shape[:2]), order = 3, mode = 'nearest')
             
             if naiveMax:
                 # naively take argmax
@@ -211,14 +219,19 @@ if __name__ == '__main__':
     caffe.set_mode_gpu()
 	    
     caffeNet = get_net('googlenet_coco')
+
+    # for each layer, show the output shape
+    for layer_name, blob in caffeNet.blobs.iteritems():
+        print layer_name + '\t' + str(blob.data.shape)
+
     transformer = get_COCO_net_transformer(caffeNet)
 
     # set heatmap type and parameters
     heatmapType = args.saliency
-    if heatmap == 'excitation_backprop':
+    if heatmapType == 'excitation_backprop':
         normDeg = -1
         bottomName = 'pool2/3x3_s2'
-    elif heatmap == 'contrast_excitation_backprop':
+    elif heatmapType == 'contrast_excitation_backprop':
         normDeg = -2
         bottomName = 'pool2/3x3_s2'
     else:
@@ -233,7 +246,7 @@ if __name__ == '__main__':
     for cat in catList:
         (catAcc, catAccDiff) = evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, 
             heatmapType, topName = 'loss3/classifier', bottomName = bottomName, normDeg = normDeg, 
-            naiveMax = naiveMax, gpu = gpu):
+            naiveMax = naiveMax, gpu = gpu)
         print cat['name'], ' Acc =', catAcc, ' Diff Acc =', catAccDiff 
         accuracy.append(catAcc)
         accuracyDiff.append(catAccDiff)
