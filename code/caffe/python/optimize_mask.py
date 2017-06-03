@@ -8,8 +8,20 @@ import scipy
 
 from PIL import ImageFilter, Image
 
+# COCO API
+coco_root = '/data/datasets/coco'  # modify to point to your COCO installation
+sys.path.insert(0, coco_root + '/PythonAPI')
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
+import pycocotools.mask as mask
+
+# CAFFE
+caffe_root = '/users/ruthfong/sample_code/Caffe-ExcitationBP'
+
 from helpers import *
 from defaults import caffe_dir
+
+tags, tag2ID = util.loadTags(caffe_root + '/models/COCO/catName.txt')
 
 def generate_learned_mask(net, path, label, given_gradient = True, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
         l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
@@ -637,12 +649,13 @@ def check_mask_generalizability(net, img_path, target, mask_path, null_type = 'b
 def main(argv):
     parser = argparse.ArgumentParser(description='Learn perturbation masks for ImageNet examples.')
 
+    parse.add_argument('dataset', default='imagenet', help="choose from ['imagenet', 'coco']")
     parser.add_argument('data_desc', default='train_heldout', help="choose from ['train_heldout', 'val', 'animal_parts']")
 
     parser.add_argument('-n', '--net_type', default='googlenet', help="choose from ['googlenet', 'vgg16', 'alexnet']")
     parser.add_argument('-g', '--gpu', default=None, type=int, help="zero-indexed gpu to use [i.e. 0-3]") 
     parser.add_argument('-s', '--start', default=0, type=int, help="start index")
-    parser.add_argument('-e', '--end', default=10, type=int, help="end index")
+    parser.add_argument('-e', '--end', default=None, type=int, help="end index")
     parser.add_argument('-f', '--fig_dir', default=None)
     parser.add_argument('-m', '--mask_dir', default=None)
     parser.add_argument('--show_fig', action='store_true')
@@ -653,6 +666,7 @@ def main(argv):
     #data_desc = 'train_heldout'
 
     args = parser.parse_args(argv)
+    datset = args.dataset
     data_desc = args.data_desc
     gpu = args.gpu
     net_type = args.net_type
@@ -669,16 +683,54 @@ def main(argv):
     else:
         caffe.set_mode_cpu()
 
-    assert(data_desc == 'train_heldout' or data_desc == 'val' or data_desc == 'animal_parts')
+    if dataset == 'imagenet':
+        assert(data_desc == 'train_heldout' or data_desc == 'val' or data_desc == 'animal_parts')
 
-    if data_desc == 'train_heldout':
-        (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/annotated_train_heldout_imdb.txt')
-    elif data_desc == 'val':
-        (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/val_imdb.txt')
-    elif data_desc == 'animal_parts':
-        (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/animal_parts_require_both_min_10_imdb.txt')
-    
-    labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
+        if data_desc == 'train_heldout':
+            (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/annotated_train_heldout_imdb.txt')
+        elif data_desc == 'val':
+            (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/val_imdb.txt')
+        elif data_desc == 'animal_parts':
+            (paths, labels) = read_imdb('/home/ruthfong/packages/caffe/data/ilsvrc12/animal_parts_require_both_min_10_imdb.txt')
+        
+        labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
+
+        net = get_net(net_type)
+        net_transformer = get_ILSVRC_net_transformer(net)
+        target_range = range(start, end) if end is not None else range(start, len(labels))
+    elif dataset == 'coco':
+        assert(net_type == 'googlenet')
+        assert(dataset_desc == 'val')
+
+        # load COCO val2014
+        imset   = 'val2014'
+        imgDir  = '%s/images/%s/'%(coco_root, imset)
+        annFile = '%s/annotations/instances_%s.json'%(coco_root, imset)
+        cocoAnn = COCO(annFile)
+        cocoAnn.info()
+        catIds  = cocoAnn.getCatIds()
+        catList = cocoAnn.loadCats(catIds)
+
+        paths = []
+        labels = []
+        for cat in catList:
+            catLabel = tag2ID[cat['name']]
+            imgIds  = cocoAnn.getImgIds(catIds=cat['id'])
+            imgList = cocoAnn.loadImgs(ids=imgIds)
+            if end is not None:
+                catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList[:np.minimum(end, len(imgList))]]
+            else:
+                catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList]
+            catLabels = np.ones(len(catPaths)) * catLabel
+            paths.extend(catPaths)
+            labels.extend(catLabels)
+        paths = np.array(paths)
+        labels = np.array(labels)
+
+        net = get_net('googlenet_coco')
+        net_transformer = get_COCO_net_transformer(net)
+
+        target_range = range(0, len(paths))
 
     if not loc_params:
         from defaults import (num_iters, lr, l1_lambda, l1_ideal, l1_lambda_2, tv_lambda, tv_beta, jitter, num_top, noise, null_type, 
@@ -723,9 +775,7 @@ def main(argv):
         blur_mask = 5
         mask_scale = 8
 
-    net = get_net(net_type)
-    net_transformer = get_ILSVRC_net_transformer(net)
-    for i in range(start, end):
+    for i in target_range:
         fig_path = None
         mask_path = None
         if fig_dir is not None:
