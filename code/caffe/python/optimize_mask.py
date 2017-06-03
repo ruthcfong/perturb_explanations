@@ -21,7 +21,9 @@ caffe_root = '/users/ruthfong/sample_code/Caffe-ExcitationBP'
 from helpers import *
 from defaults import caffe_dir
 
-tags, tag2ID = util.loadTags(caffe_root + '/models/COCO/catName.txt')
+import coco_util
+
+tags, tag2ID = coco_util.loadTags(caffe_root + '/models/COCO/catName.txt')
 
 def generate_learned_mask(net, path, label, given_gradient = True, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
         l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
@@ -237,7 +239,11 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
 
         x = img_ * mask_w_noise + null_img_ * (1 - mask_w_noise)
         net.blobs[start_layer].data[...] = x
-        net.forward(start = start_layer, end = end_layer)
+        try:
+            net.forward(start = start_layer, end = end_layer)
+        except:
+            assert(start_layer == 'data')
+            net.forward(end = end_layer)
         if not given_gradient:
             output = np.squeeze(net.blobs[end_layer].data)
             gradient = np.squeeze(np.zeros(net.blobs[end_layer].data.shape))
@@ -245,8 +251,20 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
                 gradient[:,target] = output[:,target]
             else:
                 gradient[target] = output[target]
-        net.blobs[end_layer].diff[...] = gradient
-        net.backward(start = end_layer, end = start_layer)
+        print net.blobs[end_layer].diff.shape, gradient.shape
+        try:
+            net.blobs[end_layer].diff[...] = gradient
+        except:
+            ax_idx = np.where(np.array(net.blobs[end_layer].diff.shape) == 1)[0]
+            for ax_i in ax_idx:
+                gradient = np.expand_dims(gradient, ax_i)
+            print gradient.shape
+            net.blobs[end_layer].diff[...] = gradient
+        try:
+            net.backward(start = end_layer, end = start_layer)
+        except:
+            assert(start_layer == 'data')
+            net.backward(start = end_layer)
        
         summed_score = (net.blobs[end_layer].data * gradient).sum()
         if norm_score:
@@ -276,7 +294,11 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
             net.blobs[end_layer].diff[...] = gradient
             #assert(np.array_equal(net.blobs[end_layer].diff[0], net.blobs[end_layer].diff[1]))
 
-        net.backward(start = end_layer, end = start_layer)
+        try:
+            net.backward(start = end_layer, end = start_layer)
+        except:
+            assert(start_layer == 'data')
+            net.backward(start = end_layer)
 
         dx = np.squeeze(net.blobs[start_layer].diff)
         if null_type == 'avg_blur_blank_noise':
@@ -355,6 +377,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
             #plt.ion()
             #plt.clf()
             f.canvas.draw()
+            f.canvas.flush_events()
             time.sleep(1e-2)
             #plt.pause(1e-3)
             if debug:
@@ -649,7 +672,7 @@ def check_mask_generalizability(net, img_path, target, mask_path, null_type = 'b
 def main(argv):
     parser = argparse.ArgumentParser(description='Learn perturbation masks for ImageNet examples.')
 
-    parse.add_argument('dataset', default='imagenet', help="choose from ['imagenet', 'coco']")
+    parser.add_argument('dataset', default='imagenet', help="choose from ['imagenet', 'coco']")
     parser.add_argument('data_desc', default='train_heldout', help="choose from ['train_heldout', 'val', 'animal_parts']")
 
     parser.add_argument('-n', '--net_type', default='googlenet', help="choose from ['googlenet', 'vgg16', 'alexnet']")
@@ -666,7 +689,7 @@ def main(argv):
     #data_desc = 'train_heldout'
 
     args = parser.parse_args(argv)
-    datset = args.dataset
+    dataset = args.dataset
     data_desc = args.data_desc
     gpu = args.gpu
     net_type = args.net_type
@@ -697,10 +720,10 @@ def main(argv):
 
         net = get_net(net_type)
         net_transformer = get_ILSVRC_net_transformer(net)
-        target_range = range(start, end) if end is not None else range(start, len(labels))
+        labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
     elif dataset == 'coco':
         assert(net_type == 'googlenet')
-        assert(dataset_desc == 'val')
+        assert(data_desc == 'val')
 
         # load COCO val2014
         imset   = 'val2014'
@@ -721,11 +744,13 @@ def main(argv):
                 catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList[:np.minimum(end, len(imgList))]]
             else:
                 catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList]
-            catLabels = np.ones(len(catPaths)) * catLabel
+            catLabels = np.ones(len(catPaths)).astype(int) * catLabel
             paths.extend(catPaths)
             labels.extend(catLabels)
         paths = np.array(paths)
         labels = np.array(labels)
+
+        labels_desc = tags
 
         net = get_net('googlenet_coco')
         net_transformer = get_COCO_net_transformer(net)
@@ -793,7 +818,7 @@ def main(argv):
         generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
                 num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, 
                 tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask,
-                jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top)
+                jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top, labels = labels)
 
         end = time.time()
         print 'Time elapsed:', (end-start)
