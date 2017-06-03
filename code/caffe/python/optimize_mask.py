@@ -679,7 +679,7 @@ def main(argv):
     parser.add_argument('-m', '--mask_dir', default=None)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--loc_params', action='store_true', help="use localization hyperparameters (i.e. min top5, lambda1 = 1e-3, beta = 2)")
-
+    parser.add_argument('--mask_init', action=store_true)
     #gpu = 0 
     #net_type = 'googlenet'
     #data_desc = 'train_heldout'
@@ -695,6 +695,11 @@ def main(argv):
     mask_dir = args.mask_dir
     show_fig = args.show_fig
     loc_params = args.loc_params
+
+    plot_step = 50
+    debug = False
+    verbose = False
+    mask_init_type = 'circle' if args.mask_init else None
 
     if gpu is not None:
         caffe.set_device(gpu)
@@ -799,10 +804,16 @@ def main(argv):
     for i in target_range:
         fig_path = None
         mask_path = None
-        if fig_dir is not None:
-            fig_path = os.path.join(fig_dir, '%d.png' % i)
-        if mask_dir is not None:
-            mask_path = os.path.join(mask_dir, '%d.npy' % i)
+        if dataset == 'imagenet':
+            if fig_dir is not None:
+                fig_path = os.path.join(fig_dir, '%d.png' % i)
+            if mask_dir is not None:
+                mask_path = os.path.join(mask_dir, '%d.npy' % i)
+        elif dataset == '':
+            if fig_dir is not None:
+                fig_path = os.path.join(fig_dir, '%s_%d.png' % (path.strip('.jpg').split('/')[-1], label))
+            if mask_dir is not None
+                mask_path = os.path.join(mask_dir, '%d.npy' % (path.strip('.jpg').split('/')[-1], label))
 
         if mask_dir is not None and os.path.exists(mask_path):
             print '%s already exists so skipping' % mask_path
@@ -810,11 +821,14 @@ def main(argv):
 
         start = time.time()
         
-        #generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig)
-        generate_learned_mask(net, net_transformer, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
-                num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, 
-                tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask,
-                jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top, labels = labels_desc)
+        generate_learned_mask(net, net_transformer, paths[i], labels[i], given_gradient = given_gradient, 
+                              norm_score = norm_score, num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, 
+                              l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, tv_lambda = tv_lambda, tv_beta = tv_beta, 
+                              mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask, 
+                              jitter = jitter, noise = noise, null_type = null_type, gpu = gpu, 
+                              start_layer = 'data', end_layer = 'prob', plot_step = plot_step, debug = debug, 
+                              fig_path = fig_path, mask_path = mask_path, verbose = verbose, show_fig = show_fig, 
+                              mask_init_type = mask_init_type, num_top = num_top, labels = labels_desc)
 
         end = time.time()
         print 'Time elapsed:', (end-start)
