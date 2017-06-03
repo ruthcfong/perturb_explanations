@@ -38,6 +38,8 @@ def parseArgs():
                         default=0, type=int)
     parser.add_argument('-s', '--saliency', default='saliency', type=str, 
         help="saliency heatmap method ['center', 'saliency', 'guided_backprop', 'excitation_backprop', 'contrast_excitation_backprop']")
+    parser.add_argument('-m', '--maxImgs', default=None, help="maximum number of images to score per category")
+    parser.add_argument('--naiveMax', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -240,8 +242,8 @@ if __name__ == '__main__':
         normDeg = np.inf
         bottomName = 'data'
 
-    naiveMax = True # TODO: take as input via parser
-    maxImgs = 500 
+    naiveMax = args.naiveMax # TODO: take as input via parser
+    maxImgs = args.maxImgs 
 
     print args
     # get per-category accuracies
