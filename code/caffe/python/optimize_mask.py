@@ -25,7 +25,7 @@ import coco_util
 
 tags, tag2ID = coco_util.loadTags(caffe_root + '/models/COCO/catName.txt')
 
-def generate_learned_mask(net, path, label, given_gradient = True, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
+def generate_learned_mask(net, net_transformer, path, label, given_gradient = True, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
         l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
         jitter = 4, noise = 0, null_type = 'blur', gpu = None, start_layer = 'data', end_layer = 'prob', 
         plot_step = None, debug = False, fig_path = None, mask_path = None, verbose = False, show_fig = True, mask_init_type = 'circle', num_top = 0, 
@@ -53,7 +53,6 @@ def generate_learned_mask(net, path, label, given_gradient = True, norm_score = 
     if mask_path is not None and os.path.exists(mask_path):
         print "%s already exists; cancel if you don't want to overwrite it" % mask_path
     start = time.time()
-    net_transformer = get_ILSVRC_net_transformer(net)
 
     img = net_transformer.preprocess('data', caffe.io.load_image(path))
     net.blobs['data'].data[...] = img
@@ -251,14 +250,12 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
                 gradient[:,target] = output[:,target]
             else:
                 gradient[target] = output[target]
-        print net.blobs[end_layer].diff.shape, gradient.shape
         try:
             net.blobs[end_layer].diff[...] = gradient
         except:
             ax_idx = np.where(np.array(net.blobs[end_layer].diff.shape) == 1)[0]
             for ax_i in ax_idx:
                 gradient = np.expand_dims(gradient, ax_i)
-            print gradient.shape
             net.blobs[end_layer].diff[...] = gradient
         try:
             net.backward(start = end_layer, end = start_layer)
@@ -377,7 +374,6 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
             #plt.ion()
             #plt.clf()
             f.canvas.draw()
-            f.canvas.flush_events()
             time.sleep(1e-2)
             #plt.pause(1e-3)
             if debug:
@@ -815,10 +811,10 @@ def main(argv):
         start = time.time()
         
         #generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig)
-        generate_learned_mask(net, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
+        generate_learned_mask(net, net_transformer, paths[i], labels[i], fig_path = fig_path, mask_path = mask_path, gpu = gpu, show_fig = show_fig, 
                 num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal, l1_lambda_2 = l1_lambda_2, 
                 tv_lambda = tv_lambda, tv_beta = tv_beta, mask_scale = mask_scale, use_conv_norm = use_conv_norm, blur_mask = blur_mask,
-                jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top, labels = labels)
+                jitter = jitter, noise = noise, null_type = null_type, end_layer = end_layer, num_top = num_top, labels = labels_desc)
 
         end = time.time()
         print 'Time elapsed:', (end-start)
