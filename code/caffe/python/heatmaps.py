@@ -237,7 +237,11 @@ def compute_heatmap(net, transformer, paths, labels, heatmap_type, topBlobName, 
             np.expand_dims(np.expand_dims(alphas, 2),3), activations.shape), 1), 0))
         return attMaps
     else:
-        net.backward(start = topLayerName, end = outputLayerName)
+        try:
+            net.backward(start = topLayerName, end = outputLayerName)
+        except:
+            assert(outputLayerName == 'data')
+            net.backward(start = topLayerName)
     
     if np.isinf(norm_deg):
         if norm_deg == np.inf:

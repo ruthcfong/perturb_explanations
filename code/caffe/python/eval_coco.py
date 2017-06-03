@@ -102,7 +102,7 @@ def doExcitationBackprop(net, img, tagName):
 
 
 def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, topName = 'loss3/classifier', 
-    bottomName = 'data', normDeg = np.inf, naiveMax = True, gpu = None):
+bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, gpu = None):
     imgIds  = cocoAnn.getImgIds(catIds=cat['id'])
     imgList = cocoAnn.loadImgs(ids=imgIds)
     hit  = 0
@@ -111,6 +111,8 @@ def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, t
     missDiff = 0
     t0 = time.time()
     numImgs = len(imgList)
+    if maxImgs is not None:
+        numImgs = np.minimum(numImgs, maxImgs)
     for i in range(numImgs):
         I = imgList[i]
         # run EB on img, get max location on attMap
@@ -121,7 +123,8 @@ def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, t
             #    attMap  = doExcitationBackprop(caffeNet, img, cat['name'])
             #else:
             #print norm_deg
-            attMap = compute_heatmap(net = caffeNet, transformer = transformer, paths = imgName, labels = cat['id']-1,
+            catLabel = tag2ID[cat['name']]
+            attMap = compute_heatmap(net = caffeNet, transformer = transformer, paths = imgName, labels = catLabel,
                            heatmap_type = heatmapType, topBlobName = topName, topLayerName = topName,
                            outputBlobName = bottomName, outputLayerName = bottomName, norm_deg = normDeg,
                            gpu = gpu)
@@ -201,7 +204,6 @@ def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, t
 
 if __name__ == '__main__':
     args = parseArgs()
-    print args
 
     # load COCO val2014
     imset   = 'val2014'
@@ -239,19 +241,26 @@ if __name__ == '__main__':
         bottomName = 'data'
 
     naiveMax = True # TODO: take as input via parser
+    maxImgs = 500 
 
+    print args
     # get per-category accuracies
     accuracy = []
     accuracyDiff = []
-    for cat in catList:
+    for i in range(len(catList)):
+        start = time.time()
+        cat = catList[i]
+        catLabel = tag2ID[cat['name']]
+        print i, catLabel, cat['name']
         (catAcc, catAccDiff) = evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, 
             heatmapType, topName = 'loss3/classifier', bottomName = bottomName, normDeg = normDeg, 
-            naiveMax = naiveMax, gpu = gpu)
-        print cat['name'], ' Acc =', catAcc, ' Diff Acc =', catAccDiff 
+            naiveMax = naiveMax, maxImgs = maxImgs, gpu = gpu)
+        print cat['name'], ' Acc =', catAcc, ' Diff Acc =', catAccDiff, ' Time =', time.time() - start
         accuracy.append(catAcc)
         accuracyDiff.append(catAccDiff)
 
     # report
+    print heatmapType, maxImgs
     for c in range(len(catList)):
         print catList[c]['name'], ': Acc =', accuracy[c], ' Diff Acc =', accuracyDiff[c]
     print 'mean Acc =', np.mean(accuracy), 'mean Diff Acc =', np.mean(accuracyDiff)
