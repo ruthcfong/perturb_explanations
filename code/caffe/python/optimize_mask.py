@@ -675,11 +675,12 @@ def main(argv):
     parser.add_argument('-g', '--gpu', default=None, type=int, help="zero-indexed gpu to use [i.e. 0-3]") 
     parser.add_argument('-s', '--start', default=0, type=int, help="start index")
     parser.add_argument('-e', '--end', default=None, type=int, help="end index")
+    parser.add_argument('-c', '--cap', default=None, type=int, help="maximum number of images per class (COCO only)")
     parser.add_argument('-f', '--fig_dir', default=None)
     parser.add_argument('-m', '--mask_dir', default=None)
     parser.add_argument('--show_fig', action='store_true')
     parser.add_argument('--loc_params', action='store_true', help="use localization hyperparameters (i.e. min top5, lambda1 = 1e-3, beta = 2)")
-    parser.add_argument('--mask_init', action=store_true)
+    parser.add_argument('--mask_init', action='store_true')
     #gpu = 0 
     #net_type = 'googlenet'
     #data_desc = 'train_heldout'
@@ -691,14 +692,15 @@ def main(argv):
     net_type = args.net_type
     start = args.start
     end = args.end
+    cap = args.cap
     fig_dir = args.fig_dir
     mask_dir = args.mask_dir
     show_fig = args.show_fig
     loc_params = args.loc_params
 
-    plot_step = 50
+    plot_step = None 
     debug = False
-    verbose = False
+    verbose = True 
     mask_init_type = 'circle' if args.mask_init else None
 
     if gpu is not None:
@@ -741,8 +743,8 @@ def main(argv):
             catLabel = tag2ID[cat['name']]
             imgIds  = cocoAnn.getImgIds(catIds=cat['id'])
             imgList = cocoAnn.loadImgs(ids=imgIds)
-            if end is not None:
-                catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList[:np.minimum(end, len(imgList))]]
+            if cap is not None:
+                catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList[:np.minimum(cap, len(imgList))]]
             else:
                 catPaths = [os.path.join(imgDir, I['file_name']) for I in imgList]
             catLabels = np.ones(len(catPaths)).astype(int) * catLabel
@@ -756,7 +758,7 @@ def main(argv):
         net = get_net('googlenet_coco')
         net_transformer = get_COCO_net_transformer(net)
 
-        target_range = range(0, len(paths))
+    target_range = range(0, len(paths)) if end is None else range(start, end)
 
     if not loc_params:
         from defaults import (num_iters, lr, l1_lambda, l1_ideal, l1_lambda_2, tv_lambda, tv_beta, jitter, num_top, noise, null_type, 
@@ -801,20 +803,24 @@ def main(argv):
         blur_mask = 5
         mask_scale = 8
 
+    fig_path = None
+    mask_path = None
     for i in target_range:
-        fig_path = None
-        mask_path = None
+        path = paths[i]
+        label = labels[i]
         if dataset == 'imagenet':
             if fig_dir is not None:
                 fig_path = os.path.join(fig_dir, '%d.png' % i)
             if mask_dir is not None:
                 mask_path = os.path.join(mask_dir, '%d.npy' % i)
-        elif dataset == '':
+        elif dataset == 'coco':
             if fig_dir is not None:
                 fig_path = os.path.join(fig_dir, '%s_%d.png' % (path.strip('.jpg').split('/')[-1], label))
-            if mask_dir is not None
-                mask_path = os.path.join(mask_dir, '%d.npy' % (path.strip('.jpg').split('/')[-1], label))
+            if mask_dir is not None:
+                mask_path = os.path.join(mask_dir, '%s_%d.npy' % (path.strip('.jpg').split('/')[-1], label))
 
+        if i > 100:
+            fig_path = None
         if mask_dir is not None and os.path.exists(mask_path):
             print '%s already exists so skipping' % mask_path
             continue
@@ -831,7 +837,7 @@ def main(argv):
                               mask_init_type = mask_init_type, num_top = num_top, labels = labels_desc)
 
         end = time.time()
-        print 'Time elapsed:', (end-start)
+        print '%d (time=%.2f s)' % (i, end-start)
 
     del net
 
