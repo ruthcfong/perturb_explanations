@@ -2,7 +2,7 @@ import caffe
 
 import numpy as np
 import pylab
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import sys, os, time, argparse
 import scipy
 
@@ -78,10 +78,11 @@ def generate_learned_mask(net, net_transformer, path, label, given_gradient = Tr
     elif mask_init_type == None:
         mask_init = None
 
-    if show_fig:
-       plt.ion() 
-    else:
-        plt.ioff()
+    if fig_path is not None:
+        if show_fig:
+           plt.ion() 
+        else:
+            plt.ioff()
 
     mask = optimize_mask(net, path, target, labels = labels, given_gradient = given_gradient, norm_score = norm_score,
                         num_iters = num_iters, lr = lr, l1_lambda = l1_lambda, l1_ideal = l1_ideal,
@@ -90,7 +91,8 @@ def generate_learned_mask(net, net_transformer, path, label, given_gradient = Tr
                         null_type = null_type, mask_init = mask_init, gpu = gpu, start_layer = None, end_layer = end_layer,
                         plot_step = plot_step, debug = debug, fig_path = fig_path, mask_path = mask_path, verbose = verbose)
 
-    plt.ion()
+    if fig_path is not None:
+        plt.ion()
     end = time.time()
     if verbose:
         print 'Time elapsed:', (end-start)
@@ -101,6 +103,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
                   l1_ideal = 1, l1_lambda_2 = 0, tv_lambda = 1e-2, tv_beta = 3, mask_scale = 8, use_conv_norm = False, blur_mask = 5, 
                   jitter = 4, noise = 0, null_type = 'blur', mask_init = None, gpu = None, start_layer = None, 
                   end_layer = None, plot_step = None, debug = False, fig_path = None, mask_path = None, verbose = False):
+    start = time.time()
     # adam parameters
     beta1 = 0.9
     beta2 = 0.999
@@ -113,13 +116,16 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         end_layer = net.blobs.keys()[-1]
 
     if plot_step is None: 
-        plot_step = num_iters
+        if fig_path is None:
+            plot_step = np.inf
+        else:
+            plot_step = num_iters
 
     if given_gradient:
         gradient = target
     
     assert(start_layer == 'data')
-    
+
     net_transformer = get_ILSVRC_net_transformer(net)
     net_shape = net.blobs[start_layer].data.shape
     assert(len(net_shape) == 4)
@@ -171,6 +177,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
     else:
         assert(False)
     
+    start_init = time.time()
     if mask_init is not None:
         if mask_scale == 1:
             mask = mask_init
@@ -187,7 +194,6 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
 
     m_t = np.zeros(mask.shape)
     v_t = np.zeros(mask.shape)
-
     
     if gpu is None:
         caffe.set_mode_cpu()
@@ -196,8 +202,8 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         caffe.set_mode_gpu()
     
     E = np.empty((num_iters, 5))
-    pylab.rcParams['figure.figsize'] = (12.0,12.0)
-    f,ax = plt.subplots(4,2)
+    #pylab.rcParams['figure.figsize'] = (12.0,12.0)
+    #f,ax = plt.subplots(4,2)
     #plt.ion()
     for t in range(num_iters):
         start = time.time()
@@ -275,7 +281,6 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
             #der = np.maximum(np.exp(null_score), np.exp(net.blobs[end_layer].data))
             net.blobs[end_layer].diff[...] = gradient * der
             '''
-            if null_type == 'avg_blur_blank_noise':
                 norm_s = (summed_score/float(3) - null_score)/float(orig_score - null_score)
             else:
                 norm_s = (summed_score - null_score)/float(orig_score - null_score)
@@ -351,6 +356,9 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         mask[mask < 0] = 0
         
         if debug or ((t+1) % plot_step == 0):
+            print 'plot'
+            
+
             if null_type == 'avg_blur_blank_noise':
                 ax[0,0].imshow(net_transformer.deprocess('data', img_[0]))
                 rand_i = np.random.randint(3)
@@ -384,11 +392,11 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
                                                                                  l1_lambda*np.abs(dl1).mean(),
                                                                                  l1_lambda_2*np.abs(dl1_2).mean(),
                                                                                  tv_lambda*np.abs(dtv).mean())
-        print '%d: %.4f' % (t, time.time() - start)
     if fig_path is not None:
         directory = os.path.dirname(os.path.abspath(fig_path))
         if not os.path.exists(directory):
             os.makedirs(directory)
+        start = time.time()
         plt.savefig(fig_path)
 
     if mask_path is not None:
@@ -399,6 +407,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
             mask = resize(mask, mask_scale)
         if blur_mask > 0:
             mask = blur(mask, radius=blur_mask)
+        start = time.time()
         np.save(mask_path, mask)
         if verbose:
             print 'saved mask to %s' % mask_path
