@@ -200,6 +200,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
     f,ax = plt.subplots(4,2)
     #plt.ion()
     for t in range(num_iters):
+        start = time.time()
         img = jitter_transformer.preprocess(start_layer, caffe.io.load_image(path))
         if jitter != 0:
             j1 = np.random.randint(jitter)
@@ -383,7 +384,7 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
                                                                                  l1_lambda*np.abs(dl1).mean(),
                                                                                  l1_lambda_2*np.abs(dl1_2).mean(),
                                                                                  tv_lambda*np.abs(dtv).mean())
-            
+        print '%d: %.4f' % (t, time.time() - start)
     if fig_path is not None:
         directory = os.path.dirname(os.path.abspath(fig_path))
         if not os.path.exists(directory):
