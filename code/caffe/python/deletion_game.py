@@ -11,9 +11,10 @@ def main():
     net_type = 'googlenet'
     data_desc = 'train_heldout'
     # TODO: Change this to the directory in which learned masks are stored
-    mask_dir = '/data/ruthfong/neural_coding/pycaffe_results/googlenet_train_heldout_given_grad_1_norm_0/min_top0_prob_blur/lr_-1.00_l1_lambda_-4.00_tv_lambda_-inf_l1_lambda_2_-2.00_beta_3.00_mask_scale_8_blur_mask_5_jitter_4_noise_-inf_num_iters_300_tv2_mask_init'
+    #mask_dir = '/data/ruthfong/neural_coding/pycaffe_results/googlenet_train_heldout_given_grad_1_norm_0/min_top0_prob_blur/lr_-1.00_l1_lambda_-4.00_tv_lambda_-inf_l1_lambda_2_-2.00_beta_3.00_mask_scale_8_blur_mask_5_jitter_4_noise_-inf_num_iters_300_tv2_mask_init'
+    mask_dir = '/data/ruthfong/neural_coding/results_reb/occ_masks_imagenet_googlenet_train_heldout_defaults'
     # TODO: Change this to desired output directorya (subdirs will be created)
-    out_dir = '/home/ruthfong/neural_coding/deletion_game'
+    out_dir = '/users/ruthfong/neural_coding/deletion_game'
     mask_flip = True
     bb_method = 'min_max_diff'
     threshold = 0.01
@@ -33,7 +34,8 @@ def main():
     net = get_net(net_type)
     net_transformer = get_ILSVRC_net_transformer(net)
     alphas = np.arange(0,1,0.01)
-    heatmap_types = ['mask', 'saliency', 'guided_backprop', 'excitation_backprop', 'contrast_excitation_backprop']
+    #heatmap_types = ['mask', 'saliency', 'guided_backprop', 'excitation_backprop', 'contrast_excitation_backprop']
+    heatmap_types = ['occlusion', 'grad_cam']
     num_imgs = len(labels)
     best_bb_sizes = np.zeros((len(heatmap_types), num_imgs))
     for i in range(num_imgs):
@@ -47,7 +49,7 @@ def main():
         for hh in range(len(heatmap_types)):
             h = heatmap_types[hh]
             resize = None
-            if h == 'mask':
+            if h == 'mask' or h == 'occlusion':
                 heatmap = np.load(mask_paths[i])
                 if mask_flip:
                     heatmap = 1 - heatmap            
@@ -60,6 +62,10 @@ def main():
                 elif h == 'contrast_excitation_backprop':
                     bottom_name = 'pool2/3x3_s2'
                     norm_deg = -2
+                    resize = (224,224)
+                elif h == 'grad_cam':
+                    bottom_name = 'inception_4e/output'
+                    norm_deg = None
                     resize = (224,224)
                 else:
                     bottom_name = 'data'
@@ -78,10 +84,14 @@ def main():
                 comp_img = img * mask + null_img * (1 - mask)
                 masked_score = forward_pass(net, comp_img, target)
                 scores[j] =(masked_score-null_score)/float(orig_score-null_score)
-            alphas_scores_path = os.path.join(out_dir, '%s_%s/%s/alpha_scores_num_imgs_%d_%s.txt' % (net_type, data_desc,
-                                                    mask_rel_dir, num_imgs, h))
-            bb_sizes_path = os.path.join(out_dir, '%s_%s/%s/bb_sizes_num_imgs_%d_%s.txt' % (net_type, data_desc,
-                                    mask_rel_dir, num_imgs, h))
+           # alphas_scores_path = os.path.join(out_dir, '%s_%s/%s/alpha_scores_num_imgs_%d_%s.txt' % (net_type, data_desc,
+           #                                         mask_rel_dir, num_imgs, h))
+           # bb_sizes_path = os.path.join(out_dir, '%s_%s/%s/bb_sizes_num_imgs_%d_%s.txt' % (net_type, data_desc,
+           #                         mask_rel_dir, num_imgs, h))
+            alphas_scores_path = os.path.join(out_dir, '%s_%s/alpha_scores_num_imgs_%d_%s.txt' % (net_type, data_desc,
+                                                    num_imgs, h))
+            bb_sizes_path = os.path.join(out_dir, '%s_%s/bb_sizes_num_imgs_%d_%s.txt' % (net_type, data_desc,
+                                    num_imgs, h))
             directory = os.path.dirname(alphas_scores_path)
             if not os.path.exists(directory):
                 os.makedirs(directory)

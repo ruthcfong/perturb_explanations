@@ -342,7 +342,7 @@ def main(argv):
     data_desc = argv[1]
     heatmap_type = argv[2]
     bb_method = argv[3]
-    if heatmap_type == 'mask':
+    if heatmap_type == 'mask' or heatmap_type == 'occlusion':
         assert(len(argv) > 4)
         mask_dir = argv[4]
         gpu = int(argv[5]) if len(argv) >= 6 else None
@@ -356,7 +356,7 @@ def main(argv):
     #bb_method = 'mean'
 
     assert(data_desc == 'annotated_train_heldout' or data_desc == 'val' or data_desc == 'animal_parts')
-    assert(heatmap_type == 'mask' or heatmap_type == 'saliency' or heatmap_type == 'guided_backprop' or heatmap_type == 'excitation_backprop')
+    assert(heatmap_type == 'mask' or heatmap_type == 'saliency' or heatmap_type == 'guided_backprop' or heatmap_type == 'excitation_backprop' or heatmap_type == 'occlusion' or heatmap_type =='grad_cam')
     assert(bb_method == 'mean' or bb_method == 'min_max_diff' or bb_method == 'energy')
     
     if gpu is not None:
@@ -415,6 +415,22 @@ def main(argv):
                 alphas = [0.15]
             elif bb_method == 'energy':
                 alphas = [0.60]
+        elif heatmap_type == 'occlusion':
+            if bb_method == 'mean':
+                alphas = [1.0]
+            elif bb_method == 'min_max_diff':
+                alphas = [0.30]
+            elif bb_method == 'energy':
+                alphas = [0.55]
+        elif heatmap_type == 'grad_cam':
+            if bb_method == 'mean':
+                alphas = [1.50]
+            elif bb_method == 'min_max_diff':
+                alphas = [0.35]
+            elif bb_method == 'energy':
+                alphas = [0.65]
+        else:
+            assert(False)
 
     labels_desc = np.loadtxt(os.path.join(caffe_dir, 'data/ilsvrc12/synset_words.txt'), str, delimiter='\t')
 
@@ -423,7 +439,7 @@ def main(argv):
     if type(labels) is not np.ndarray:
         labels = np.array(labels)
 
-    if heatmap_type == 'mask':
+    if heatmap_type == 'mask' or heatmap_type == 'occlusion':
         mask_paths = [os.path.join(mask_dir, '%d.npy' % x) for x in range(num_imgs)]
 
         for i in range(len(alphas)):
@@ -449,6 +465,12 @@ def main(argv):
                 assert(False)
             norm_deg = -1
             norm_desc = '%d' % norm_deg
+        elif heatmap_type == 'grad_cam':
+            if net_type == 'googlenet':
+                #bottom_name = 'inception_4e/output'
+                bottom_name = 'inception_5b/output'
+                norm_deg = None
+                norm_desc = 'None'
         else:
             bottom_name = 'data'
             norm_deg = np.inf

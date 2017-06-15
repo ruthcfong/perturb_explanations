@@ -1,8 +1,10 @@
 import caffe
 
+do_plotting = False 
 import numpy as np
 import pylab
-#import matplotlib.pyplot as plt
+if do_plotting:
+    import matplotlib.pyplot as plt
 import sys, os, time, argparse
 import scipy
 
@@ -54,7 +56,10 @@ def generate_learned_mask(net, net_transformer, path, label, given_gradient = Tr
         print "%s already exists; cancel if you don't want to overwrite it" % mask_path
     start = time.time()
 
-    img = net_transformer.preprocess('data', caffe.io.load_image(path))
+    if isinstance(path, basestring):
+        img = net_transformer.preprocess('data', caffe.io.load_image(path))
+    else:
+        img = path
     net.blobs['data'].data[...] = img
     net.forward()
     scores = np.squeeze(net.blobs['prob'].data)
@@ -96,7 +101,8 @@ def generate_learned_mask(net, net_transformer, path, label, given_gradient = Tr
     end = time.time()
     if verbose:
         print 'Time elapsed:', (end-start)
-    #plt.close()
+    if do_plotting:
+        plt.close()
     return mask
 
 def optimize_mask(net, path, target, labels, given_gradient = False, norm_score = False, num_iters = 300, lr = 1e-1, l1_lambda = 1e-4, 
@@ -202,9 +208,10 @@ def optimize_mask(net, path, target, labels, given_gradient = False, norm_score 
         caffe.set_mode_gpu()
     
     E = np.empty((num_iters, 5))
-    #pylab.rcParams['figure.figsize'] = (12.0,12.0)
-    #f,ax = plt.subplots(4,2)
-    #plt.ion()
+    if do_plotting:
+        pylab.rcParams['figure.figsize'] = (12.0,12.0)
+        f,ax = plt.subplots(4,2)
+        plt.ion()
     for t in range(num_iters):
         start = time.time()
         img = jitter_transformer.preprocess(start_layer, caffe.io.load_image(path))

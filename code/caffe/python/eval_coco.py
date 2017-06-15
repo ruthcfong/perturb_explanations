@@ -21,6 +21,8 @@ caffe_root = '/users/ruthfong/sample_code/Caffe-ExcitationBP'
 from helpers import get_COCO_net_transformer, get_net
 from heatmaps import compute_heatmap
 
+use_orig_imp = False 
+
 # PARAMS
 tags, tag2ID = util.loadTags(caffe_root + '/models/COCO/catName.txt')
 imgScale = 224
@@ -38,7 +40,8 @@ def parseArgs():
                         default=0, type=int)
     parser.add_argument('-s', '--saliency', default='saliency', type=str, 
         help="saliency heatmap method ['center', 'saliency', 'guided_backprop', 'excitation_backprop', 'contrast_excitation_backprop']")
-    parser.add_argument('-m', '--maxImgs', default=None, help="maximum number of images to score per category")
+    parser.add_argument('-m', '--maxImgs', default=None, type=int, help="maximum number of images to score per category")
+    parser.add_argument('-d', '--maskDir', default=None, type=str)
     parser.add_argument('--naiveMax', action='store_true')
     args = parser.parse_args()
     return args
@@ -56,9 +59,9 @@ def initCaffe(args):
 def doExcitationBackprop(net, img, tagName):
     # load image, rescale
     minDim = min(img.shape[:2])
-    newSize = (int(img.shape[0]*imgScale/float(minDim)), int(img.shape[1]*imgScale/float(minDim)))
+   # newSize = (int(img.shape[0]*imgScale/float(minDim)), int(img.shape[1]*imgScale/float(minDim)))
     #print newSize
-    #newSize = (224,224)
+    newSize = (224,224)
     imgS = transform.resize(img, newSize)
 
     # reshape net
@@ -104,7 +107,7 @@ def doExcitationBackprop(net, img, tagName):
 
 
 def evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, heatmapType, topName = 'loss3/classifier', 
-bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, gpu = None):
+bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, maskDir = None, gpu = None):
     imgIds  = cocoAnn.getImgIds(catIds=cat['id'])
     imgList = cocoAnn.loadImgs(ids=imgIds)
     hit  = 0
@@ -115,21 +118,35 @@ bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, gpu = No
     numImgs = len(imgList)
     if maxImgs is not None:
         numImgs = np.minimum(numImgs, maxImgs)
+    accuracy = None
+    accuracyDiff = None
     for i in range(numImgs):
         I = imgList[i]
         # run EB on img, get max location on attMap
         imgName = os.path.join(imgDir, I['file_name'])
         img     = caffe.io.load_image(imgName)
-        if heatmapType != 'center':
-            #if heatmapType == 'contrast_excitation_backprop':
-            #    attMap  = doExcitationBackprop(caffeNet, img, cat['name'])
-            #else:
-            #print norm_deg
-            catLabel = tag2ID[cat['name']]
-            attMap = compute_heatmap(net = caffeNet, transformer = transformer, paths = imgName, labels = catLabel,
-                           heatmap_type = heatmapType, topBlobName = topName, topLayerName = topName,
-                           outputBlobName = bottomName, outputLayerName = bottomName, norm_deg = normDeg,
-                           gpu = gpu)
+        catLabel = tag2ID[cat['name']]
+        if heatmapType == 'center':
+            # choose center of image
+            maxSub = (img.shape[0]/float(2), img.shape[1]/float(2))
+        else:
+            if heatmapType == 'mask': 
+                assert(maskDir is not None)
+                mask_path = os.path.join(maskDir, '%s_%d.npy' % (imgName.strip('.jpg').split('/')[-1], catLabel))
+                if not os.path.exists(mask_path):
+                    print '%d: %s does not exist' % (i, mask_path)
+                    break
+                attMap= 1-np.load(mask_path)
+            elif heatmapType == 'contrast_excitation_backprop' and use_orig_imp:
+                if i < 10:
+                    print 'here'
+                attMap  = doExcitationBackprop(caffeNet, img, cat['name'])
+            else:
+                catLabel = tag2ID[cat['name']]
+                attMap = compute_heatmap(net = caffeNet, transformer = transformer, paths = imgName, labels = catLabel,
+                               heatmap_type = heatmapType, topBlobName = topName, topLayerName = topName,
+                               outputBlobName = bottomName, outputLayerName = bottomName, norm_deg = normDeg,
+                               gpu = gpu)
 
             # reshape to original image
             attMap = transform.resize(attMap, (img.shape[:2]), order = 3, mode = 'nearest')
@@ -142,9 +159,6 @@ bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, gpu = No
                 maxAtt = np.max(attMap)
                 maxInd = np.where(attMap == maxAtt)
                 maxSub = (np.mean(maxInd[0]), np.mean(maxInd[1]))
-        else:
-            # choose center of image
-            maxSub = (img.shape[0]/float(2), img.shape[1]/float(2))
 
         # determine if it's a difficult image (1) sum of the area of bounding boxes is less than 1/4 of image area,
         # 2) at least one distractor category
@@ -191,7 +205,10 @@ bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, gpu = No
         else:
             miss += 1
             missDiff += 1 if isDiff else 0
-        accuracy = (hit+0.0)/(hit+miss)
+        try:
+            accuracy = (hit+0.0)/(hit+miss)
+        except:
+            accuracy = None
         try:
             accuracyDiff = (hitDiff+0.0)/(hitDiff+missDiff)
         except:
@@ -200,7 +217,7 @@ bottomName = 'data', normDeg = np.inf, naiveMax = True, maxImgs = None, gpu = No
         if time.time() - t0 > 10: 
             print cat['name'], '(', i, '/', numImgs, '): Hit =', hit, 'Miss =', miss, ' Acc =', accuracy, ' Diff Hit =', hitDiff, ' Diff Miss =', missDiff, ' Diff Acc =', accuracyDiff
             t0 = time.time()
-
+    
     return (accuracy, accuracyDiff)
 
 
@@ -244,6 +261,7 @@ if __name__ == '__main__':
 
     naiveMax = args.naiveMax # TODO: take as input via parser
     maxImgs = args.maxImgs 
+    maskDir = args.maskDir
 
     print args
     # get per-category accuracies
@@ -256,14 +274,18 @@ if __name__ == '__main__':
         print i, catLabel, cat['name']
         (catAcc, catAccDiff) = evalPointingGame(cocoAnn, cat, caffeNet, imgDir, transformer, 
             heatmapType, topName = 'loss3/classifier', bottomName = bottomName, normDeg = normDeg, 
-            naiveMax = naiveMax, maxImgs = maxImgs, gpu = gpu)
+            naiveMax = naiveMax, maxImgs = maxImgs, maskDir = maskDir, gpu = gpu)
         print cat['name'], ' Acc =', catAcc, ' Diff Acc =', catAccDiff, ' Time =', time.time() - start
         accuracy.append(catAcc)
         accuracyDiff.append(catAccDiff)
 
+    accuracy = np.array(accuracy)
+    accuracyDiff = np.array(accuracyDiff)
     # report
     print heatmapType, maxImgs
     for c in range(len(catList)):
         print catList[c]['name'], ': Acc =', accuracy[c], ' Diff Acc =', accuracyDiff[c]
-    print 'mean Acc =', np.mean(accuracy), 'mean Diff Acc =', np.mean(accuracyDiff)
+    if use_orig_imp:
+        print 'use fixed size and doExcitationBackprop'
+    print 'mean Acc =', np.mean([x for x in accuracy if x is not None]), 'mean Diff Acc =', np.mean([x for x in accuracyDiff if x is not None])
 
